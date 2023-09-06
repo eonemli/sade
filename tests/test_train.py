@@ -42,7 +42,7 @@ def test_train_step():
         sde, train=True, reduce_mean=True, likelihood_weighting=False, amp=False
     )
     N, C, H, W, D = 1, CONFIG.data.num_channels, *CONFIG.data.image_size
-    x = torch.zeros(N, C, H, W, D)
+    x = torch.zeros(N, C, H, W, D, device=CONFIG.device)
 
     with torch.no_grad():
         loss = loss_fn(score_model, x)
