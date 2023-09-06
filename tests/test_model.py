@@ -13,16 +13,30 @@ def test_model_initialization():
     assert score_model is not None
 
 
-def test_output_shape():
+def test_model_output_shape():
     CONFIG.data.num_channels = 7
     CONFIG.data.image_size = (16, 8, 16)
 
     score_model = utils.create_model(CONFIG)
+    score_fn = utils.get_model_fn(score_model, train=False)
     N, C, H, W, D = 3, CONFIG.data.num_channels, *CONFIG.data.image_size
     x = torch.ones(N, C, H, W, D)
     y = torch.tensor([1] * N)
 
     with torch.no_grad():
-        score = score_model(x, y)
+        score = score_fn(x, y)
 
     assert score.shape == (N, C, H, W, D)
+
+
+def test_mixed_precision():
+    score_model = utils.create_model(CONFIG)
+    score_fn = utils.get_model_fn(score_model, amp=True, train=False)
+    N, C, H, W, D = 1, CONFIG.data.num_channels, *CONFIG.data.image_size
+    x = torch.ones(N, C, H, W, D)
+    y = torch.tensor([1] * N)
+
+    with torch.no_grad():
+        score = score_fn(x, y)
+
+    assert score.dtype == torch.float32
