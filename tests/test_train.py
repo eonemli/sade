@@ -30,7 +30,7 @@ def test_sde_initialization():
 def test_train_step():
     CONFIG.model.sigma_min = 1e-2
     CONFIG.model.sigma_max = 1.0
-    CONFIG.model.num_scales = 2
+    CONFIG.model.num_scales = 1
 
     score_model = utils.create_model(CONFIG)
     sde = VESDE(
@@ -45,10 +45,9 @@ def test_train_step():
     x = torch.zeros(N, C, H, W, D)
 
     with torch.no_grad():
-        # while True:
         loss = loss_fn(score_model, x)
     
     assert loss.shape == torch.Size([])
     assert not loss.isnan()
-    # expected_loss = (x + sde.sigma_max).sum()
-    # assert (loss < expected_loss)
+    expected_loss = (x + sde.sigma_max).sum()
+    assert (loss < expected_loss)
