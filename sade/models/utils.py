@@ -54,7 +54,7 @@ def get_sigmas(config):
     return sigmas
 
 
-def create_model(config, log_grads=True, print_summary=False):
+def create_model(config, log_grads=False, print_summary=False):
     """Create the score model."""
     model_name = config.model.name
     score_model = get_model(model_name)(config)
