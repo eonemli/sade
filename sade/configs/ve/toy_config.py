@@ -1,4 +1,4 @@
-from configs.default_brain_configs import get_default_configs
+from ..default_brain_configs import get_default_configs
 
 def get_config():
     config = get_default_configs()
