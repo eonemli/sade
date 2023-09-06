@@ -26,6 +26,7 @@ def test_model_output_shape():
     with torch.no_grad():
         score = score_fn(x, y)
 
+    assert not torch.isnan(score).any()
     assert score.shape == (N, C, H, W, D)
 
 
@@ -38,5 +39,5 @@ def test_mixed_precision():
 
     with torch.no_grad():
         score = score_fn(x, y)
-
+    
     assert score.dtype == torch.float32
