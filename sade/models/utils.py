@@ -7,7 +7,7 @@ import numpy as np
 import torch
 from torchinfo import summary
 
-# import sde_lib
+import sade.sde_lib as sde_lib
 import wandb
 
 _MODELS = {}
