@@ -40,4 +40,7 @@ def test_mixed_precision():
     with torch.no_grad():
         score = score_fn(x, y)
     
-    assert score.dtype == torch.float32
+    if CONFIG.device == torch.device("cpu"):
+        assert score.dtype == torch.float32
+    else:
+        assert score.dtype == torch.float16
