@@ -50,17 +50,14 @@ def get_default_configs():
     msma.seq = "linear"  # Timestep schedule that dictates which sigma to sample
     msma.checkpoint = -1  # ckpt number for score norms, defaults to latest (-1)
     msma.skip_inliers = False  # skip computing score norms for inliers
-    msma.apply_masks = False
     msma.expectation_iters = -1
 
     # data
     config.data = data = ml_collections.ConfigDict()
     data.dataset = "BRAIN"
-    data.gen_ood = False
-    data.ood_ds = "LESION-c150"  # "IBIS"
+    data.ood_ds = "lesion"  # "IBIS"
     data.image_size = (192, 224, 160)  # For generating images
     data.spacing_pix_dim = 1.0
-    data.uniform_dequantization = False
     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
     data.splits_path = "/home/braintypicality/dataset/"
     data.tumor_dir_path = "/DATA/Users/amahmood/tumor/"
