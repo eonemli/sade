@@ -24,6 +24,12 @@ class SDE(abc.ABC):
         """End time of the SDE."""
         pass
 
+    @property
+    @abc.abstractmethod
+    def sampling_eps(self):
+        """Stopping time for Reverse SDE when sampling."""
+        pass
+
     @abc.abstractmethod
     def sde(self, x, t):
         pass
@@ -153,6 +159,10 @@ class VPSDE(SDE):
     @property
     def T(self):
         return 1
+    
+    @property
+    def sampling_eps(self):
+        return 1e-3
 
     def sde(self, x, t):
         if self._shape is None:
@@ -220,6 +230,10 @@ class subVPSDE(SDE):
     @property
     def T(self):
         return 1
+    
+    @property
+    def sampling_eps(self):
+        return 1e-3
 
     def sde(self, x, t):
         if self._shape is None:
@@ -284,6 +298,10 @@ class VESDE(SDE):
     @property
     def T(self):
         return 1
+
+    @property
+    def sampling_eps(self):
+        return 1e-5
 
     def sde(self, x, t):
         if self._shape is None:
