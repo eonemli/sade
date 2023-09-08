@@ -22,5 +22,5 @@ docker run \
 	--mount type=bind,src="/UTexas",target=/UTexas \
 	--mount type=bind,src=$CODESPACE,target=/codespace \
 	-p $PORT:8888 \
-	ahsanmah/pytorch_sde:latest \
+	$USER/pytorch_sde:latest \
 	jupyter lab --ip 0.0.0.0 --notebook-dir=/ --no-browser --allow-root
