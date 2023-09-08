@@ -1,0 +1,12 @@
+einops
+FrEIA
+tensorboard
+monai
+torchvision
+antspynet
+ninja
+torchinfo
+wandb
+black
+seaborn
+ml-collections~=0.1.0
