@@ -5,7 +5,6 @@ import torch
 import torch.optim as optim
 import numpy as np
 from sade.models import utils as mutils
-import sade.sde_lib as sde_lib
 
 avail_optimizers = {
     "Adam": optim.Adam,
@@ -142,7 +141,7 @@ def get_sde_loss_fn(
         mean, std = sde.marginal_prob(batch, t)
         perturbed_data = mean + sde._unsqueeze(std) * z
         score = score_fn(perturbed_data, t)
-        # breakpoint()
+
         if not likelihood_weighting:
             losses = torch.square(score * sde._unsqueeze(std) + z)
             losses = reduce_op(losses.reshape(losses.shape[0], -1), dim=-1)
@@ -162,10 +161,8 @@ def get_step_fn(
     optimize_fn=None,
     reduce_mean=False,
     likelihood_weighting=False,
-    masked_marginals=False,
     scheduler=None,
     use_fp16=False,
-    adaptive_loss=True,
 ):
     """Create a one-step training/evaluation function.
 
@@ -185,11 +182,8 @@ def get_step_fn(
         sde,
         train,
         reduce_mean=reduce_mean,
-        continuous=True,
         likelihood_weighting=likelihood_weighting,
-        masked_marginals=masked_marginals,
         amp=use_fp16,
-        adaptive_loss=adaptive_loss,
     )
 
     if use_fp16:
