@@ -1,5 +1,5 @@
 from sade.models import ncsnpp3d
-from sade.models import utils
+from sade.models import registry
 from sade.losses import (
     get_optimizer,
     get_sde_loss_fn,
@@ -105,7 +105,7 @@ def test_loss_fn(test_config):
     test_config.model.sigma_max = 1.0
     test_config.model.num_scales = 1
 
-    score_model = utils.create_model(test_config)
+    score_model = registry.create_model(test_config)
     sde = VESDE(
         sigma_min=test_config.model.sigma_min,
         sigma_max=test_config.model.sigma_max,
@@ -128,7 +128,7 @@ def test_loss_fn(test_config):
 
 def test_optimization_fn(test_config):
     test_config.model.num_scales = 1
-    score_model = utils.create_model(test_config)
+    score_model = registry.create_model(test_config)
     sde = VESDE(
         sigma_min=test_config.model.sigma_min,
         sigma_max=test_config.model.sigma_max,

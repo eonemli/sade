@@ -1,4 +1,4 @@
-from . import utils, layers, layerspp
+from . import registry, layers, layerspp
 
 from typing import Tuple, Union
 
@@ -21,7 +21,7 @@ AttentionBlock = layerspp.ChannelAttentionBlock3d
 get_conv_layer_pp = layerspp.get_conv_layer
 
 
-@utils.register_model(name="ncsnpp3d")
+@registry.register_model(name="ncsnpp3d")
 class SegResNetpp(nn.Module):
     """
     Time condioned version of SegResNet based on `3D MRI brain tumor segmentation using autoencoder regularization
@@ -59,7 +59,6 @@ class SegResNetpp(nn.Module):
         upsample_mode: Union[UpsampleMode, str] = UpsampleMode.NONTRAINABLE,
     ):
         super().__init__()
-        self.register_buffer("sigmas", torch.tensor(utils.get_sigmas(config)))
 
         if spatial_dims not in (2, 3):
             raise AssertionError("spatial_dims can only be 2 or 3.")
@@ -83,7 +82,6 @@ class SegResNetpp(nn.Module):
         self.compile = config.model.jit
         self.learnable_embedding = config.model.learnable_embedding
         self.norm_num_groups: int = config.model.norm_num_groups
-
 
         assert resblock_type in ["segresnet", "biggan"], ValueError(
             f"resblock type {resblock_type} unrecognized."

@@ -80,6 +80,30 @@ def create_model(config, log_grads=False, print_summary=False):
     score_model = torch.nn.DataParallel(score_model)
     return score_model
 
+def create_sde(config):
+    if config.training.sde.lower() == "vpsde":
+        sde = sde_lib.VPSDE(
+            beta_min=config.model.beta_min,
+            beta_max=config.model.beta_max,
+            N=config.model.num_scales,
+        )
+        
+    elif config.training.sde.lower() == "subvpsde":
+        sde = sde_lib.subVPSDE(
+            beta_min=config.model.beta_min,
+            beta_max=config.model.beta_max,
+            N=config.model.num_scales,
+        )
+    elif config.training.sde.lower() == "vesde":
+        sde = sde_lib.VESDE(
+            sigma_min=config.model.sigma_min,
+            sigma_max=config.model.sigma_max,
+            N=config.model.num_scales,
+        )
+    else:
+        raise NotImplementedError(f"SDE {config.training.sde} unknown.")
+    
+    return sde
 
 def get_model_fn(model, train=False, amp=False):
     """Create a function to give the output of the score-based model.
@@ -106,10 +130,7 @@ def get_model_fn(model, train=False, amp=False):
 
         with torch.cuda.amp.autocast(enabled=amp, dtype=torch.float16):
             if not train:
-                # print("Labels in model_fn:", labels)
-                # print("X in model_fn:", x.shape)
-                model.eval()
-                # with torch.inference_mode():
+                model.eval().requires_grad_(False)
                 return model(x, labels)
             else:
                 model.train()

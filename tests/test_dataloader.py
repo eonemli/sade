@@ -6,8 +6,6 @@ from sade.datasets.filenames import get_image_files_list
 from sade.data_loaders import get_dataloaders
 import ml_collections
 
-CONFIG = toy_config.get_config()
-
 
 @pytest.fixture
 def test_config():
