@@ -1,33 +1,43 @@
 import os
-
+import pytest
 import torch
 from sade.configs.ve import toy_config
 from sade.datasets.filenames import get_image_files_list
 from sade.data_loaders import get_dataloaders
-
-# import torch
+import ml_collections
 
 CONFIG = toy_config.get_config()
 
 
-def test_dataset_image_lists():
-    data = CONFIG.data
+@pytest.fixture
+def test_config():
+    config = ml_collections.ConfigDict()
+    data = config.data = ml_collections.ConfigDict()
     data.cache_rate = 0
     data.dataset = "ABCD"
+    data.ood_ds = "tumor"
     data.image_size = (192, 224, 160)
     data.num_channels = 1
     data.spacing_pix_dim = 1.0
     data.dir_path = os.path.join(
         os.path.abspath(os.path.dirname(__file__)), "dummy_data"
     )
-    data.splits_dir = os.path.join(
-        os.path.abspath(os.path.dirname(__file__)), "dummy_data"
-    )
+    data.splits_dir = data.dir_path
 
-    assert os.path.exists(CONFIG.data.dir_path)
+    config.training = ml_collections.ConfigDict()
+    config.training.batch_size = 1
+
+    config.eval = ml_collections.ConfigDict()
+    config.eval.batch_size = 1
+
+    return config
+
+
+def test_dataset_image_lists(test_config):
+    assert os.path.exists(test_config.data.dir_path)
 
     train, val, test = get_image_files_list(
-        CONFIG.data.dataset, CONFIG.data.dir_path, CONFIG.data.splits_dir
+        test_config.data.dataset, test_config.data.dir_path, test_config.data.splits_dir
     )
 
     assert train is not None
@@ -35,22 +45,10 @@ def test_dataset_image_lists():
     assert test is not None
 
 
-def test_dataset_shapes():
-    data = CONFIG.data
-    data.cache_rate = 0
-    data.dataset = "ABCD"
-    data.image_size = (192, 224, 160)
-    data.num_channels = 1
-    data.spacing_pix_dim = 1.0
-    data.dir_path = os.path.join(
-        os.path.abspath(os.path.dirname(__file__)), "dummy_data"
-    )
-    data.splits_dir = os.path.join(
-        os.path.abspath(os.path.dirname(__file__)), "dummy_data"
-    )
-
+def test_dataset_shapes(test_config):
+    data = test_config.data
     _, datasets = get_dataloaders(
-        CONFIG,
+        test_config,
         evaluation=False,
         ood_eval=False,
         num_workers=2,
@@ -65,20 +63,35 @@ def test_dataset_shapes():
         assert x["image"].shape == (data.num_channels, 176, 208, 160)
 
 
-# def test_data_loader_iter():
-#     CONFIG.data.dataset = "ABCD"
-#     CONFIG.data.cache_rate = 0
+def test_data_loader_iter(test_config):
 
-#     dataloaders, _ = get_dataloaders(
-#         CONFIG,
-#         evaluation=False,
-#         ood_eval=False,
-#         num_workers=2,
-#     )
+    dataloaders, _ = get_dataloaders(
+        test_config,
+        evaluation=False,
+        ood_eval=False,
+        num_workers=2,
+    )
 
-#     assert len(dataloaders) == 3
+    assert len(dataloaders) == 3
 
-#     for dl in dataloaders:
-#         assert dl is not None
-#         x = next(iter(dl))
-#         assert x is not None
+    for dl in dataloaders:
+        assert dl is not None
+        x = next(iter(dl))
+        assert x is not None
+
+def test_ood_data_loader(test_config):
+
+    dataloaders, _ = get_dataloaders(
+        test_config,
+        evaluation=True,
+        ood_eval=True,
+        num_workers=2,
+    )
+
+    train_dl, eval_dl, test_dl = dataloaders
+    assert train_dl is None
+    
+    for dl in (eval_dl, test_dl):
+        assert dl is not None
+        x = next(iter(dl))
+        assert x is not None

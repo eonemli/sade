@@ -5,10 +5,8 @@ def clean(x):
     return x.strip().replace("_", "")
 
 
-def get_image_files_list(dataset_name, dataset_dir, splits_dir=None):
-    if splits_dir is None:
-        splits_dir = os.path.abspath(os.path.dirname(__file__))
-
+def get_image_files_list(dataset_name, dataset_dir, splits_dir):
+    
     filenames = {}
     dataset_name = dataset_name.lower()
 

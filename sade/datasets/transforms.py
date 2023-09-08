@@ -27,14 +27,15 @@ class TumorGrowthGrid3D(RandDeformGrid):
     def __init__(
         self,
         spacing: Union[Sequence[float], float],
-        max_tumor_size: float,
+        # max_tumor_size: float,
         magnitude_range: Tuple[float, float],
         as_tensor_output: bool = True,
         device: Optional[torch.device] = None,
     ) -> None:
-        super(TumorGrowthGrid3D, self).__init__(
-            spacing, magnitude_range, as_tensor_output, device
-        )
+        max_tumor_size = magnitude_range[0]
+        magnitude_range = magnitude_range[1:]
+        super(TumorGrowthGrid3D, self).__init__(spacing, magnitude_range, device)
+
         self.max_tumor_size = max_tumor_size
 
     def randomize(self) -> None:
@@ -87,12 +88,11 @@ class RandTumor(Randomizable, Transform):
     ) -> None:
         self.deform_grid = TumorGrowthGrid3D(
             spacing=spacing,
-            max_tumor_size=max_tumor_size,
-            magnitude_range=magnitude_range,
+            magnitude_range=(max_tumor_size, *magnitude_range),
             as_tensor_output=True,
             device=device,
         )
-        self.resampler = Resample(as_tensor_output=as_tensor_output, device=device)
+        self.resampler = Resample(device=device)
 
         self.spatial_size = spatial_size
         self.mode: GridSampleMode = GridSampleMode(mode)
@@ -175,7 +175,6 @@ def get_train_transform(config):
 
 
 def get_val_transform(config):
-
     spacing = [config.data.spacing_pix_dim] * 3
     return Compose(
         [
