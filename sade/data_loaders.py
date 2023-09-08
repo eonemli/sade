@@ -43,27 +43,6 @@ def plot_slices(x, fname, channels_first=False):
 
     return
 
-
-def get_channel_selector(config):
-    c = config.data.select_channel
-    if c > -1:
-        return lambda x: torch.unsqueeze(x[:, c, ...], dim=1)
-    else:
-        return lambda x: x
-
-
-def get_data_scaler(config):
-    """Data normalizer. Assume data are always in [0, 1]."""
-
-    # Optionally select channels
-
-    if config.data.centered:
-        # Rescale to [-1, 1]
-        return lambda x: x * 2.0 - 1.0
-    else:
-        return lambda x: x
-
-
 def get_data_inverse_scaler(config):
     # """Inverse data normalizer."""
     # if config.data.centered:

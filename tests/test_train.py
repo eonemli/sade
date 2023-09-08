@@ -1,11 +1,13 @@
+from sade import losses
 from sade.models import ncsnpp3d
-from sade.models import registry
+from sade.models.registry import create_model
 from sade.losses import (
     get_optimizer,
     get_sde_loss_fn,
     optimization_manager,
     get_step_fn,
 )
+from sade.models.ema import ExponentialMovingAverage
 from sade.sde_lib import VESDE
 import torch
 import ml_collections
@@ -78,6 +80,7 @@ def test_config():
 
     return config
 
+
 def test_sde_initialization(test_config):
     test_config.model.sigma_min = 1e-2
     test_config.model.sigma_max = 3.0
@@ -105,7 +108,7 @@ def test_loss_fn(test_config):
     test_config.model.sigma_max = 1.0
     test_config.model.num_scales = 1
 
-    score_model = registry.create_model(test_config)
+    score_model = create_model(test_config)
     sde = VESDE(
         sigma_min=test_config.model.sigma_min,
         sigma_max=test_config.model.sigma_max,
@@ -128,7 +131,7 @@ def test_loss_fn(test_config):
 
 def test_optimization_fn(test_config):
     test_config.model.num_scales = 1
-    score_model = registry.create_model(test_config)
+    score_model = create_model(test_config)
     sde = VESDE(
         sigma_min=test_config.model.sigma_min,
         sigma_max=test_config.model.sigma_max,
@@ -154,42 +157,41 @@ def test_optimization_fn(test_config):
     assert post_opt_loss < pre_opt_loss
 
 
-# def test_train_step(test_config):
+def test_train_step(test_config):
+    score_model = create_model(test_config)
+    sde = VESDE(
+        sigma_min=test_config.model.sigma_min,
+        sigma_max=test_config.model.sigma_max,
+        N=test_config.model.num_scales,
+    )
+    ema = ExponentialMovingAverage(
+        score_model.parameters(), decay=test_config.model.ema_rate
+    )
+    optimizer = losses.get_optimizer(test_config, score_model.parameters())
+    optimize_fn = optimization_manager(test_config)
 
-#     score_model = utils.create_model(test_config)
-#     sde = VESDE(
-#         sigma_min=test_config.model.sigma_min,
-#         sigma_max=test_config.model.sigma_max,
-#         N=test_config.model.num_scales,
-#     )
-#     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
-#     optimizer = losses.get_optimizer(config, score_model.parameters())
-#     optimize_fn = optimization_manager(test_config)
+    state = dict(
+        optimizer=optimizer,
+        model=score_model,
+        ema=ema,
+        step=0,
+        scheduler=None,
+        grad_scaler=None,
+    )
 
+    train_step_fn = get_step_fn(
+        sde,
+        train=True,
+        optimize_fn=optimize_fn,
+        reduce_mean=True,
+        use_fp16=False,
+    )
 
-#     state = dict(
-#         optimizer=optimizer,
-#         model=score_model,
-#         ema=ema,
-#         step=0,
-#         scheduler=scheduler,
-#         grad_scaler=grad_scaler,
-#     )
+    N, C, H, W, D = 1, test_config.data.num_channels, *test_config.data.image_size
+    x = torch.ones(N, C, H, W, D, device=test_config.device)
 
-#     train_step_fn = get_step_fn(
-#         sde,
-#         train=True,
-#         optimize_fn=optimize_fn,
-#         reduce_mean=True,
-#         use_fp16=False,
-#     )
-
-#     N, C, H, W, D = 1, test_config.data.num_channels, *test_config.data.image_size
-#     x = torch.ones(N, C, H, W, D, device=test_config.device)
-
-#     loss = train_step_fn(score_model, x)
-
-#     assert loss.shape == torch.Size([])
-#     assert not loss.isnan()
-#     expected_loss = (x + sde.sigma_max).sum()
-#     assert (loss < expected_loss)
+    loss = train_step_fn(state, x)
+    assert loss.shape == torch.Size([])
+    assert not loss.isnan()
+    expected_loss = (x + sde.sigma_max).sum()
+    assert loss < expected_loss

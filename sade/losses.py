@@ -1,10 +1,12 @@
 """All functions related to loss computation and optimization.
 """
-
+#######
+## TODO: Move optimizer and scheduler and step_fn to sade/optim.py
+######
 import torch
 import torch.optim as optim
 import numpy as np
-from sade.models import utils as mutils
+from sade.models.registry import get_score_fn
 
 avail_optimizers = {
     "Adam": optim.Adam,
@@ -133,7 +135,7 @@ def get_sde_loss_fn(
         Returns:
         loss: A scalar that represents the average loss value across the mini-batch.
         """
-        score_fn = mutils.get_score_fn(
+        score_fn = get_score_fn(
             sde, model, train=train, amp=amp
         )
         t = torch.rand(batch.shape[0], device=batch.device) * (sde.T - eps) + eps
@@ -268,7 +270,7 @@ def get_scorer(sde, continuous=True, eps=1e-5):
         Returns:
           score: A tensor that represents the weighted scores for each sample in the mini-batch.
         """
-        score_fn = mutils.get_score_fn(sde, model, train=False, continuous=continuous)
+        score_fn = get_score_fn(sde, model, train=False, continuous=continuous)
         t = torch.rand(batch.shape[0], device=batch.device) * (sde.T - eps) + eps
         score = score_fn(batch, t)
         return score
@@ -329,7 +331,7 @@ def get_diagnsotic_fn(
         Returns:
           loss: A scalar that represents the average loss value across the mini-batch.
         """
-        score_fn = mutils.get_score_fn(
+        score_fn = get_score_fn(
             sde, model, train=False, continuous=continuous, amp=use_fp16
         )
         _t = torch.ones(batch.shape[0], device=batch.device) * t * (sde.T - eps) + eps
