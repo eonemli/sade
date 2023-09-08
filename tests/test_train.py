@@ -16,7 +16,9 @@ import os
 @pytest.fixture
 def test_config():
     config = ml_collections.ConfigDict()
-    config.device = torch.device("cpu")
+    config.device = (
+        torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
+    )
 
     data = config.data = ml_collections.ConfigDict()
     data.cache_rate = 0
