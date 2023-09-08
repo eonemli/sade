@@ -27,9 +27,7 @@ class TumorGrowthGrid3D(RandDeformGrid):
     def __init__(
         self,
         spacing: Union[Sequence[float], float],
-        # max_tumor_size: float,
         magnitude_range: Tuple[float, float],
-        as_tensor_output: bool = True,
         device: Optional[torch.device] = None,
     ) -> None:
         max_tumor_size = magnitude_range[0]
@@ -66,10 +64,9 @@ class TumorGrowthGrid3D(RandDeformGrid):
         # print(control_grid.shape, deform.shape)
         # print(self.center1, self.center2)
 
-        if self.as_tensor_output:
-            control_grid = torch.as_tensor(
-                np.ascontiguousarray(control_grid), device=self.device
-            )
+        control_grid = torch.as_tensor(
+            np.ascontiguousarray(control_grid), device=self.device
+        )
         return control_grid
 
 
@@ -83,13 +80,11 @@ class RandTumor(Randomizable, Transform):
         spatial_size: Optional[Union[Sequence[int], int]] = None,
         mode: Union[GridSampleMode, str] = GridSampleMode.BILINEAR,
         padding_mode: Union[GridSamplePadMode, str] = GridSamplePadMode.REFLECTION,
-        as_tensor_output: bool = False,
         device: Optional[torch.device] = None,
     ) -> None:
         self.deform_grid = TumorGrowthGrid3D(
             spacing=spacing,
             magnitude_range=(max_tumor_size, *magnitude_range),
-            as_tensor_output=True,
             device=device,
         )
         self.resampler = Resample(device=device)
