@@ -79,6 +79,24 @@ def test_data_loader_iter(test_config):
         x = next(iter(dl))
         assert x is not None
 
+def test_inf_data_loader(test_config):
+
+    (_, eval_dl, _), _ = get_dataloaders(
+        test_config,
+        evaluation=True,
+        ood_eval=False,
+        num_workers=2,
+        infinite_sampler=True,
+    )
+
+    assert eval_dl is not None
+    dl_iter = iter(eval_dl)
+    # Test data was only one batch
+    # Infinite sampler should loop
+    for _ in range(3):
+        x = next(dl_iter)
+        assert x is not None
+
 def test_ood_data_loader(test_config):
 
     dataloaders, _ = get_dataloaders(

@@ -1,4 +1,5 @@
 """Return training and evaluation/test datasets from config files."""
+import functools
 import os
 
 import ants
@@ -14,6 +15,7 @@ from sade.datasets.transforms import (
     get_lesion_transform,
 )
 from sade.datasets.filenames import get_image_files_list
+from torch.utils.data import RandomSampler
 
 
 def plot_slices(x, fname, channels_first=False):
@@ -77,6 +79,7 @@ def get_dataloaders(
     evaluation=False,
     ood_eval=False,
     num_workers=6,
+    infinite_sampler=False,
 ):
     """Create data loaders for training and evaluation.
 
@@ -87,7 +90,12 @@ def get_dataloaders(
     Returns:
       train_ds, eval_ds, dataset_builder.
     """
+    if infinite_sampler:
+        inf_sampler = functools.partial(
+            RandomSampler, replacement=True, num_samples=int(1e100)
+        )
 
+    # Sanity checks
     assert config.data.dataset.lower() in ["abcd", "ibis"]
     assert config.data.ood_ds.lower() in ["tumor", "lesion", "ds-sa"]
 
@@ -97,6 +105,14 @@ def get_dataloaders(
     data_dir_path = config.data.dir_path
     cache_rate = config.data.cache_rate
     dataset_name = config.data.dataset.lower()
+
+    train_file_list = None
+    val_file_list = None
+    test_file_list = None
+
+    train_transform = get_train_transform(config)
+    val_transform = get_val_transform(config)
+    test_transform = get_val_transform(config)
 
     if ood_eval:
         # We will only return inlier and ood samples
@@ -121,26 +137,19 @@ def get_dataloaders(
             _, _, test_file_list = get_image_files_list(
                 dataset_name, data_dir_path, splits_dir
             )
-            test_transform = get_val_transform(config)
 
         # Inlier samples
         _, val_file_list, _ = get_image_files_list(
             dataset_name, data_dir_path, splits_dir
         )
-        val_transform = get_val_transform(config)
-
     elif evaluation:
         _, val_file_list, test_file_list = get_image_files_list(
             dataset_name, data_dir_path, splits_dir
         )
-        val_transform = get_val_transform(config)
     else:  # Training data
         train_file_list, val_file_list, test_file_list = get_image_files_list(
             dataset_name, data_dir_path, splits_dir
         )
-        train_transform = get_train_transform(config)
-        val_transform = get_val_transform(config)
-        test_transform = get_val_transform(config)
 
     train_ds = None
     if train_file_list is not None:
@@ -180,6 +189,7 @@ def get_dataloaders(
             pin_memory=True,
             prefetch_factor=2,
             persistent_workers=num_workers > 0,
+            sampler=inf_sampler(train_ds) if infinite_sampler else None,
         )
 
     eval_loader = DataLoader(
@@ -188,14 +198,16 @@ def get_dataloaders(
         shuffle=False,
         num_workers=num_workers,
         pin_memory=num_workers > 0,
+        sampler=inf_sampler(eval_ds) if infinite_sampler else None,
     )
 
     test_loader = DataLoader(
-        eval_ds,
+        test_ds,
         batch_size=config.eval.batch_size,
         shuffle=False,
         num_workers=num_workers,
         pin_memory=num_workers > 0,
+        sampler=inf_sampler(test_ds) if infinite_sampler else None,
     )
 
     dataloaders = (train_loader, eval_loader, test_loader)
