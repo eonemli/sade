@@ -1,10 +1,11 @@
 import os
+
+import ml_collections
 import pytest
 import torch
-from sade.configs.ve import toy_config
-from sade.datasets.filenames import get_image_files_list
+
 from sade.data_loaders import get_dataloaders
-import ml_collections
+from sade.datasets.filenames import get_image_files_list
 
 
 @pytest.fixture
@@ -17,9 +18,7 @@ def test_config():
     data.image_size = (176, 208, 160)
     data.num_channels = 1
     data.spacing_pix_dim = 1.0
-    data.dir_path = os.path.join(
-        os.path.abspath(os.path.dirname(__file__)), "dummy_data"
-    )
+    data.dir_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "dummy_data")
     data.splits_dir = data.dir_path
 
     config.training = ml_collections.ConfigDict()
@@ -63,7 +62,6 @@ def test_dataset_shapes(test_config):
 
 
 def test_data_loader_iter(test_config):
-
     dataloaders, _ = get_dataloaders(
         test_config,
         evaluation=False,
@@ -78,8 +76,8 @@ def test_data_loader_iter(test_config):
         x = next(iter(dl))
         assert x is not None
 
-def test_inf_data_loader(test_config):
 
+def test_inf_data_loader(test_config):
     (_, eval_dl, _), _ = get_dataloaders(
         test_config,
         evaluation=True,
@@ -96,8 +94,8 @@ def test_inf_data_loader(test_config):
         x = next(dl_iter)
         assert x is not None
 
-def test_ood_data_loader(test_config):
 
+def test_ood_data_loader(test_config):
     dataloaders, _ = get_dataloaders(
         test_config,
         evaluation=True,
@@ -107,7 +105,7 @@ def test_ood_data_loader(test_config):
 
     train_dl, eval_dl, test_dl = dataloaders
     assert train_dl is None
-    
+
     for dl in (eval_dl, test_dl):
         assert dl is not None
         x = next(iter(dl))
