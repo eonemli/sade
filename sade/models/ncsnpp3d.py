@@ -22,7 +22,7 @@ get_conv_layer_pp = layerspp.get_conv_layer
 
 
 @registry.register_model(name="ncsnpp3d")
-class SegResNetpp(nn.Module):
+class SegResNetpp(registry.BaseScoreModel):
     """
     Time condioned version of SegResNet based on `3D MRI brain tumor segmentation using autoencoder regularization
     <https://arxiv.org/pdf/1810.11654.pdf>`_.
@@ -58,7 +58,7 @@ class SegResNetpp(nn.Module):
         use_conv_final: bool = True,
         upsample_mode: Union[UpsampleMode, str] = UpsampleMode.NONTRAINABLE,
     ):
-        super().__init__()
+        super().__init__(config)
 
         if spatial_dims not in (2, 3):
             raise AssertionError("spatial_dims can only be 2 or 3.")

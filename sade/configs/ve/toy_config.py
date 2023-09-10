@@ -1,4 +1,6 @@
-from ..default_brain_configs import get_default_configs
+from sade.configs.default_brain_configs import get_default_configs
+import os
+
 
 def get_config():
     config = get_default_configs()
@@ -8,19 +10,23 @@ def get_config():
     training.continuous = True
     training.likelihood_weighting = False
     training.reduce_mean = True
-    training.batch_size = 8
+    training.batch_size = 4
     training.n_iters = 10
 
     data = config.data
-    data.image_size = (8, 8, 8)
-    data.spacing_pix_dim = 2.0
+    data.image_size = (48, 56, 40)
+    data.spacing_pix_dim = 4.0
     data.num_channels = 2
-    data.cache_rate = 1.0
-    data.centered = False
+    data.cache_rate = 0.0
+
+    cur_dir = os.path.abspath(os.path.dirname(__file__))
+    dir_path = os.path.join(cur_dir, "..", "..", "..", "tests", "dummy_data")
+    data.dir_path = os.path.abspath(dir_path)
+    data.splits_dir = data.dir_path
 
     evaluate = config.eval
     evaluate.sample_size = 8
-    evaluate.batch_size = 64
+    evaluate.batch_size = 8
 
     # optimization
     optim = config.optim

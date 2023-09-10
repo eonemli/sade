@@ -14,7 +14,7 @@ def test_config():
     data.cache_rate = 0
     data.dataset = "ABCD"
     data.ood_ds = "tumor"
-    data.image_size = (192, 224, 160)
+    data.image_size = (176, 208, 160)
     data.num_channels = 1
     data.spacing_pix_dim = 1.0
     data.dir_path = os.path.join(
@@ -45,6 +45,7 @@ def test_dataset_image_lists(test_config):
 
 def test_dataset_shapes(test_config):
     data = test_config.data
+    C, H, W, D = data.num_channels, *data.image_size
     _, datasets = get_dataloaders(
         test_config,
         evaluation=False,
@@ -58,7 +59,7 @@ def test_dataset_shapes(test_config):
         x = ds[0]
         assert x is not None
         assert x["image"].dtype is torch.float32
-        assert x["image"].shape == (data.num_channels, 176, 208, 160)
+        assert x["image"].shape == (C, H, W, D)
 
 
 def test_data_loader_iter(test_config):

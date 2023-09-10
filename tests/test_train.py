@@ -36,6 +36,7 @@ def test_config():
 
     config.training = ml_collections.ConfigDict()
     config.training.batch_size = 1
+    config.training.sde = "vesde"
 
     config.eval = ml_collections.ConfigDict()
     config.eval.batch_size = 1

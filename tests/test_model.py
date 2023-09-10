@@ -1,4 +1,3 @@
-from sade.models import ncsnpp3d
 from sade.models import registry
 from sade.configs.ve import toy_config
 import torch

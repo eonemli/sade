@@ -13,6 +13,15 @@ import wandb
 _MODELS = {}
 
 
+class BaseScoreModel(torch.nn.Module):
+    """Base class for score models."""
+    
+    def __init__(self, config):
+        super().__init__()
+        self.model_config = config.model
+        self.sde = create_sde(config)
+        self.register_buffer("sigmas", self.sde.discrete_sigmas)
+
 def register_model(cls=None, *, name=None):
     """A decorator for registering model classes."""
 
