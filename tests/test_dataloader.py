@@ -44,6 +44,9 @@ def test_dataset_image_lists(test_config):
 
 def test_dataset_shapes(test_config):
     data = test_config.data
+    data.image_size = (32, 32, 32)
+    data.spacing_pix_dim = 8.0
+
     C, H, W, D = data.num_channels, *data.image_size
     _, datasets = get_dataloaders(
         test_config,
