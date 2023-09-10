@@ -1,0 +1,25 @@
+[build-system]
+requires = ["setuptools"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "sade"
+description = "score matching anomaly detection"
+readme = "README.md"
+version = "0.0.1"
+
+[tool.setuptools.packages.find]
+where = ["sade"]
+
+[tool.black]
+line-length = 92
+
+[tool.isort]
+profile = "black"
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+addopts = "--disable-warnings"
+testpaths = [
+    "tests/",
+]
