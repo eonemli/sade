@@ -3,8 +3,7 @@ import logging
 import numpy as np
 import torch
 import torch.optim as optim
-
-from sade.losses import get_sde_loss_fn
+from losses import get_sde_loss_fn
 
 avail_optimizers = {
     "Adam": optim.Adam,
