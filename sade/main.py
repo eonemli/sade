@@ -2,26 +2,21 @@
 import logging
 import os
 import sys
-# temporary workaround: add parent directory to path
-sys.path.append(os.path.join(os.path.dirname(os.path.abspath(__file__)),os.pardir))
+import warnings
 
 import ml_collections
+import tensorflow as tf
 import torch
+import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
-
 from run.train import trainer
-import wandb
-import warnings
-import tensorflow as tf
 
 warnings.filterwarnings("ignore")
 
 FLAGS = flags.FLAGS
 
-config_flags.DEFINE_config_file(
-    "config", None, "Training configuration.", lock_config=True
-)
+config_flags.DEFINE_config_file("config", None, "Training configuration.", lock_config=True)
 flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
@@ -29,9 +24,7 @@ flags.DEFINE_enum(
     ["train", "eval", "score", "sweep", "flow-train", "flow-eval"],
     "Running mode: train or eval",
 )
-flags.DEFINE_string(
-    "eval_folder", "eval", "The folder name for storing evaluation results"
-)
+flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
 flags.DEFINE_string(
     "sweep_id", None, "Optional ID for a sweep controller if running a sweep."
 )
