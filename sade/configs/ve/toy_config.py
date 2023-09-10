@@ -1,5 +1,6 @@
-from sade.configs.default_brain_configs import get_default_configs
 import os
+
+from configs.default_brain_configs import get_default_configs
 
 
 def get_config():
