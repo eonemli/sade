@@ -1,12 +1,12 @@
-import os
 import glob
+import os
+
 
 def clean(x):
     return x.strip().replace("_", "")
 
 
 def get_image_files_list(dataset_name, dataset_dir, splits_dir):
-    
     filenames = {}
     dataset_name = dataset_name.lower()
 
@@ -16,18 +16,15 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
                 filenames[split] = [clean(x) for x in f.readlines()]
 
         train_file_list = [
-            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")}
-            for x in filenames["train"]
+            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in filenames["train"]
         ]
 
         val_file_list = [
-            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")}
-            for x in filenames["val"]
+            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in filenames["val"]
         ]
 
         test_file_list = [
-            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")}
-            for x in filenames["test"]
+            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in filenames["test"]
         ]
 
     elif dataset_name == "ibis":
@@ -42,9 +39,7 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
     elif dataset_name in ["ds-sa"]:
         train_file_list = val_file_list = None
         fname = os.path.join(splits_dir, f"{dataset_name}_outlier_keys.txt")
-        assert os.path.exists(
-            fname
-        ), "File for {dataset_name} does not exist at {fname}"
+        assert os.path.exists(fname), "File for {dataset_name} does not exist at {fname}"
         with open(fname, "r") as f:
             filenames["outlier"] = [x.strip() for x in f.readlines()]
 

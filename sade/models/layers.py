@@ -1,11 +1,12 @@
 """Common layers for defining score networks.
 """
 import math
+
+import numpy as np
+import torch
 import torch as th
 import torch.nn as nn
-import torch
 import torch.nn.functional as F
-import numpy as np
 
 
 def get_act(config):
@@ -50,9 +51,9 @@ def variance_scaling(
         if distribution == "normal":
             return torch.randn(*shape, dtype=dtype, device=device) * np.sqrt(variance)
         elif distribution == "uniform":
-            return (
-                torch.rand(*shape, dtype=dtype, device=device) * 2.0 - 1.0
-            ) * np.sqrt(3 * variance)
+            return (torch.rand(*shape, dtype=dtype, device=device) * 2.0 - 1.0) * np.sqrt(
+                3 * variance
+            )
         else:
             raise ValueError("invalid distribution for variance scaling initializer")
 

@@ -18,14 +18,13 @@ from . import layers
 
 default_init = layers.default_init
 
+
 class GaussianFourierProjection(nn.Module):
     """Gaussian Fourier embeddings for noise levels."""
 
     def __init__(self, embedding_size=256, scale=1.0, learnable=False):
         super().__init__()
-        self.W = nn.Parameter(
-            torch.randn(embedding_size) * scale, requires_grad=learnable
-        )
+        self.W = nn.Parameter(torch.randn(embedding_size) * scale, requires_grad=learnable)
 
     def forward(self, x):
         x_proj = x[:, None] * self.W[None, :] * 2 * np.pi
@@ -218,7 +217,9 @@ class SegResBlockpp(nn.Module):
         self.act = nn.SiLU()
 
         if attention_heads > 0:
-            self.attn = layers.AttentionBlock(channels=in_channels, num_heads=attention_heads)
+            self.attn = layers.AttentionBlock(
+                channels=in_channels, num_heads=attention_heads
+            )
 
     def forward(self, x, temb=None):
         if self.pre_conv is not None:
@@ -230,9 +231,7 @@ class SegResBlockpp(nn.Module):
         # Conditioning is acheived via time embedding
         if temb is not None:
             cond_info = self.dense(self.act(temb))[:, :, None, None, None]
-            gamma, beta = torch.split(
-                cond_info, (self.n_channels, self.n_channels), dim=1
-            )
+            gamma, beta = torch.split(cond_info, (self.n_channels, self.n_channels), dim=1)
             x = x * gamma + beta
 
         if self.attention:
@@ -321,9 +320,7 @@ class ResnetBlockBigGANpp(nn.Module):
 class ChannelAttentionBlock3d(nn.Module):
     """Channel-wise 3D self-attention block."""
 
-    def __init__(
-        self, channels, num_head_channels=None, skip_scale=False, init_scale=0.1
-    ):
+    def __init__(self, channels, num_head_channels=None, skip_scale=False, init_scale=0.1):
         super().__init__()
         torch.random.manual_seed(42)
         self.norm = nn.GroupNorm(num_groups=8, num_channels=channels, eps=1e-6)

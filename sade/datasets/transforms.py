@@ -1,11 +1,12 @@
-import torch
+from typing import *
+
 import numpy as np
+import torch
+from monai.transforms import *
 from monai.transforms.croppad.array import CenterSpatialCrop
+from monai.transforms.spatial.array import *
 from monai.transforms.transform import Randomizable, Transform
-from monai.transforms.utils import (
-    create_control_grid,
-    create_grid,
-)
+from monai.transforms.utils import create_control_grid, create_grid
 from monai.utils import (
     GridSampleMode,
     GridSamplePadMode,
@@ -13,10 +14,6 @@ from monai.utils import (
     ensure_tuple,
     fall_back_tuple,
 )
-
-from monai.transforms.spatial.array import *
-from typing import *
-from monai.transforms import *
 
 
 class TumorGrowthGrid3D(RandDeformGrid):
@@ -51,12 +48,8 @@ class TumorGrowthGrid3D(RandDeformGrid):
         self.spacing = fall_back_tuple(self.spacing, (1.0,) * len(spatial_size))
         control_grid = create_control_grid(spatial_size, self.spacing)
         self.randomize()
-        dist1 = np.sqrt(
-            np.sum(np.square(control_grid - self.center1)[:3], axis=0) + 1e-6
-        )
-        dist2 = np.sqrt(
-            np.sum(np.square(control_grid - self.center2)[:3], axis=0) + 1e-6
-        )
+        dist1 = np.sqrt(np.sum(np.square(control_grid - self.center1)[:3], axis=0) + 1e-6)
+        dist2 = np.sqrt(np.sum(np.square(control_grid - self.center2)[:3], axis=0) + 1e-6)
         deform_mag = self.rand_mag / (dist1 + dist2)
         center = (self.center1 + self.center2) / 2.0
         deform = (control_grid - center)[:3] * deform_mag

@@ -1,6 +1,7 @@
+import math
+
 import ml_collections
 import torch
-import math
 
 
 def get_default_configs():
@@ -63,10 +64,10 @@ def get_default_configs():
     data.splits_dir = "/codespace/sade/datasets/"
     data.cache_rate = 0.0
     data.num_channels = 2
-    
+
     # model
     config.model = model = ml_collections.ConfigDict()
-    model.sigma_max = 274.0 # For medres
+    model.sigma_max = 274.0  # For medres
     model.sigma_min = 0.03
     model.num_scales = 1000
     model.dropout = 0.0
@@ -122,5 +123,5 @@ def get_default_configs():
     sweep.parameters = param_dict
     sweep.method = "bayes"
     sweep.metric = dict(name="val_loss")
-    
+
     return config
