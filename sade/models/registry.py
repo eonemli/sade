@@ -5,22 +5,23 @@ import logging
 
 import numpy as np
 import torch
+import wandb
 from torchinfo import summary
 
 import sade.sde_lib as sde_lib
-import wandb
 
 _MODELS = {}
 
 
 class BaseScoreModel(torch.nn.Module):
     """Base class for score models."""
-    
+
     def __init__(self, config):
         super().__init__()
         self.model_config = config.model
         self._sde = create_sde(config)
         self.register_buffer("sigmas", self._sde.discrete_sigmas)
+
 
 def register_model(cls=None, *, name=None):
     """A decorator for registering model classes."""
@@ -73,9 +74,7 @@ def create_model(config, log_grads=False, print_summary=False):
         summary(
             score_model,
             input_data=(
-                torch.zeros(
-                    size=(1, config.data.num_channels, *config.data.image_size)
-                ),
+                torch.zeros(size=(1, config.data.num_channels, *config.data.image_size)),
                 torch.zeros(
                     1,
                 ),
@@ -91,6 +90,7 @@ def create_model(config, log_grads=False, print_summary=False):
 
     return score_model
 
+
 def create_sde(config):
     if config.training.sde.lower() == "vpsde":
         sde = sde_lib.VPSDE(
@@ -98,7 +98,7 @@ def create_sde(config):
             beta_max=config.model.beta_max,
             N=config.model.num_scales,
         )
-        
+
     elif config.training.sde.lower() == "subvpsde":
         sde = sde_lib.subVPSDE(
             beta_min=config.model.beta_min,
@@ -115,6 +115,7 @@ def create_sde(config):
         raise NotImplementedError(f"SDE {config.training.sde} unknown.")
     logging.info("SDE created")
     return sde
+
 
 def get_model_fn(model, train=False, amp=False):
     """Create a function to give the output of the score-based model.
@@ -142,7 +143,8 @@ def get_model_fn(model, train=False, amp=False):
         with torch.cuda.amp.autocast(enabled=amp, dtype=torch.float16):
             if not train:
                 model.eval()
-                return model(x, labels)
+                with torch.no_grad():
+                    return model(x, labels)
             else:
                 model.train()
                 return model(x, labels)
@@ -184,9 +186,7 @@ def get_score_fn(sde, model, train=False, amp=False):
             return score
 
     else:
-        raise NotImplementedError(
-            f"SDE class {sde.__class__.__name__} not yet supported."
-        )
+        raise NotImplementedError(f"SDE class {sde.__class__.__name__} not yet supported.")
 
     return score_fn
 
@@ -205,7 +205,7 @@ def from_flattened_numpy(x, shape):
 def denoise_update(x, eps=1e-2):
     # Reverse diffusion predictor for denoising
     predictor_obj = ReverseDiffusionPredictor(sde, score_fn, probability_flow=False)
-    vec_eps = torch.ones(x.shape[0], device=x.device) * DENOISE_EPS
+    vec_eps = torch.ones(x.shape[0], device=x.device) * eps
     _, x = predictor_obj.update_fn(x, vec_eps)
     return x
 
