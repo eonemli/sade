@@ -7,7 +7,7 @@ import torch
 from sade.losses import get_sde_loss_fn
 from sade.models import ncsnpp3d
 from sade.models.ema import ExponentialMovingAverage
-from sade.models.registry import create_model
+from sade.models.registry import create_model, create_sde
 from sade.optim import get_step_fn, optimization_manager
 from sade.sde_lib import VESDE
 
@@ -106,11 +106,7 @@ def test_loss_fn(test_config):
     test_config.model.num_scales = 1
 
     score_model = create_model(test_config)
-    sde = VESDE(
-        sigma_min=test_config.model.sigma_min,
-        sigma_max=test_config.model.sigma_max,
-        N=test_config.model.num_scales,
-    )
+    sde = create_sde(test_config)
     loss_fn = get_sde_loss_fn(
         sde, train=True, reduce_mean=True, likelihood_weighting=False, amp=False
     )
@@ -129,11 +125,7 @@ def test_loss_fn(test_config):
 def test_optimization_fn(test_config):
     test_config.model.num_scales = 1
     score_model = create_model(test_config)
-    sde = VESDE(
-        sigma_min=test_config.model.sigma_min,
-        sigma_max=test_config.model.sigma_max,
-        N=test_config.model.num_scales,
-    )
+    sde = create_sde(test_config)
     state_dict = {"model": score_model, "step": 0}
     optimize_fn = optimization_manager(state_dict, test_config)
     assert optimize_fn is not None
@@ -161,11 +153,7 @@ def test_optimization_fn(test_config):
 
 def test_train_step(test_config):
     score_model = create_model(test_config)
-    sde = VESDE(
-        sigma_min=test_config.model.sigma_min,
-        sigma_max=test_config.model.sigma_max,
-        N=test_config.model.num_scales,
-    )
+    sde = create_sde(test_config)
     ema = ExponentialMovingAverage(
         score_model.parameters(), decay=test_config.model.ema_rate
     )

@@ -4,9 +4,9 @@
 import logging
 
 import numpy as np
-import sde_lib as sde_lib
 import torch
 import wandb
+from sde_lib import VESDE, VPSDE, subVPSDE
 from torchinfo import summary
 
 _MODELS = {}
@@ -92,20 +92,20 @@ def create_model(config, log_grads=False, print_summary=False):
 
 def create_sde(config):
     if config.training.sde.lower() == "vpsde":
-        sde = sde_lib.VPSDE(
+        sde = VPSDE(
             beta_min=config.model.beta_min,
             beta_max=config.model.beta_max,
             N=config.model.num_scales,
         )
 
     elif config.training.sde.lower() == "subvpsde":
-        sde = sde_lib.subVPSDE(
+        sde = subVPSDE(
             beta_min=config.model.beta_min,
             beta_max=config.model.beta_max,
             N=config.model.num_scales,
         )
     elif config.training.sde.lower() == "vesde":
-        sde = sde_lib.VESDE(
+        sde = VESDE(
             sigma_min=config.model.sigma_min,
             sigma_max=config.model.sigma_max,
             N=config.model.num_scales,
@@ -164,7 +164,7 @@ def get_score_fn(sde, model, train=False, amp=False):
     """
     model_fn = get_model_fn(model, train=train, amp=amp)
 
-    if isinstance(sde, sde_lib.VPSDE) or isinstance(sde, sde_lib.subVPSDE):
+    if isinstance(sde, VPSDE) or isinstance(sde, subVPSDE):
 
         def score_fn(x, t):
             # Scale neural network output by standard deviation and flip sign
@@ -177,7 +177,7 @@ def get_score_fn(sde, model, train=False, amp=False):
             score = -score / sde._unsqueeze(std)
             return score
 
-    elif isinstance(sde, sde_lib.VESDE):
+    elif isinstance(sde, VESDE):
 
         def score_fn(x, t):
             labels = sde.marginal_prob(torch.zeros_like(x), t)[1]
