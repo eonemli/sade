@@ -12,6 +12,7 @@ def get_default_configs():
     training.snapshot_freq = 10000
     training.log_freq = 100
     training.eval_freq = 500
+    training.use_fp16 = False
     ## store additional checkpoints for preemption in cloud computing environments
     training.snapshot_freq_for_preemption = 1000
     ## produce samples at each snapshot.
@@ -45,7 +46,7 @@ def get_default_configs():
     # msma
     config.msma = msma = ml_collections.ConfigDict()
     msma.max_timestep = 1.0
-    msma.min_timestep = 0.0  # Ignore first x% of sigmas
+    msma.min_timestep = 0.1  # Ignore first x% of sigmas
     msma.n_timesteps = 20  # Number of discrete timesteps to evaluate
     msma.seq = "linear"  # Timestep schedule that dictates which sigma to sample
     msma.checkpoint = -1  # ckpt number for score norms, defaults to latest (-1)
@@ -54,16 +55,14 @@ def get_default_configs():
 
     # data
     config.data = data = ml_collections.ConfigDict()
-    data.dataset = "BRAIN"
+    data.dataset = "ABCD"
     data.ood_ds = "lesion"  # "IBIS"
-    data.image_size = (192, 224, 160)  # For generating images
+    data.image_size = (176, 208, 160)  # For generating images
     data.spacing_pix_dim = 1.0
     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
-    data.splits_path = "/home/braintypicality/dataset/"
-    data.tumor_dir_path = "/DATA/Users/amahmood/tumor/"
+    data.splits_dir = "/codespace/sade/datasets/"
     data.cache_rate = 0.0
     data.num_channels = 2
-    data.select_channel = -1  # -1 = all, o/w indexed from zero
     
     # model
     config.model = model = ml_collections.ConfigDict()
