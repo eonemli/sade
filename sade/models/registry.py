@@ -19,8 +19,8 @@ class BaseScoreModel(torch.nn.Module):
     def __init__(self, config):
         super().__init__()
         self.model_config = config.model
-        self.sde = create_sde(config)
-        self.register_buffer("sigmas", self.sde.discrete_sigmas)
+        self._sde = create_sde(config)
+        self.register_buffer("sigmas", self._sde.discrete_sigmas)
 
 def register_model(cls=None, *, name=None):
     """A decorator for registering model classes."""
@@ -64,7 +64,7 @@ def get_sigmas(config):
 
 
 def create_model(config, log_grads=False, print_summary=False):
-    """Create the score model."""
+    """Create the score model and wrap it with DataParallel."""
     model_name = config.model.name
     score_model = get_model(model_name)(config)
 
@@ -87,6 +87,8 @@ def create_model(config, log_grads=False, print_summary=False):
 
     score_model = score_model.to(config.device)
     score_model = torch.nn.DataParallel(score_model)
+    logging.info("Model created")
+
     return score_model
 
 def create_sde(config):
@@ -111,7 +113,7 @@ def create_sde(config):
         )
     else:
         raise NotImplementedError(f"SDE {config.training.sde} unknown.")
-    
+    logging.info("SDE created")
     return sde
 
 def get_model_fn(model, train=False, amp=False):
