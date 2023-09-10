@@ -141,7 +141,7 @@ def get_model_fn(model, train=False, amp=False):
 
         with torch.cuda.amp.autocast(enabled=amp, dtype=torch.float16):
             if not train:
-                model.eval().requires_grad_(False)
+                model.eval()
                 return model(x, labels)
             else:
                 model.train()

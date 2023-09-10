@@ -12,11 +12,13 @@ def get_config():
     training.reduce_mean = True
     training.batch_size = 4
     training.n_iters = 10
+    training.log_freq = 1
+    training.eval_freq = 5
 
     data = config.data
     data.image_size = (48, 56, 40)
     data.spacing_pix_dim = 4.0
-    data.num_channels = 2
+    data.num_channels = 1
     data.cache_rate = 0.0
 
     cur_dir = os.path.abspath(os.path.dirname(__file__))

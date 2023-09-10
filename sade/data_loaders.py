@@ -163,7 +163,6 @@ def get_dataloaders(
         train_loader = DataLoader(
             train_ds,
             batch_size=config.training.batch_size,
-            shuffle=evaluation is False,
             num_workers=num_workers,
             pin_memory=True,
             prefetch_factor=2,

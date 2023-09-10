@@ -309,7 +309,6 @@ def score_step_fn(sde, continuous=True, eps=1e-5):
 def get_diagnsotic_fn(
     sde,
     reduce_mean=False,
-    continuous=True,
     likelihood_weighting=False,
     eps=1e-5,
     steps=5,
@@ -332,7 +331,7 @@ def get_diagnsotic_fn(
           loss: A scalar that represents the average loss value across the mini-batch.
         """
         score_fn = get_score_fn(
-            sde, model, train=False, continuous=continuous, amp=use_fp16
+            sde, model, train=False, amp=use_fp16
         )
         _t = torch.ones(batch.shape[0], device=batch.device) * t * (sde.T - eps) + eps
 

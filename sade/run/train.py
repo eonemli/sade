@@ -1,0 +1,227 @@
+import os
+from sade.data_loaders import get_dataloaders
+from sade.models.ema import ExponentialMovingAverage
+from sade.models.registry import create_model, create_sde
+from sade import losses
+import torch
+from torch.utils import tensorboard
+import tensorflow as tf
+import logging
+import wandb
+
+def trainer(config, workdir):
+    """Runs the training pipeline.
+
+    Args:
+      config: Configuration to use.
+      workdir: Working directory for checkpoints and TF summaries. If this
+        contains checkpoint training will be resumed from the latest checkpoint.
+    """
+
+    # Create directories for experimental logs
+    sample_dir = os.path.join(workdir, "samples")
+    tf.io.gfile.makedirs(sample_dir)
+
+    tb_dir = os.path.join(workdir, "tensorboard")
+    tf.io.gfile.makedirs(tb_dir)
+    writer = tensorboard.SummaryWriter(tb_dir)
+
+    # Initialize model.
+    score_model = create_model(config)
+    sde = create_sde(config)
+
+    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
+    optimizer = losses.get_optimizer(config, score_model.parameters())
+    scheduler = losses.get_scheduler(config, optimizer)
+    grad_scaler = torch.cuda.amp.GradScaler() if config.training.use_fp16 else None
+
+    state = dict(
+        optimizer=optimizer,
+        model=score_model,
+        ema=ema,
+        step=0,
+        scheduler=scheduler,
+        grad_scaler=grad_scaler,
+    )
+
+    # Create checkpoints directory
+    # checkpoint_dir = os.path.join(workdir, "checkpoints")
+    # # Intermediate checkpoints to resume training after pre-emption in cloud environments
+    # checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
+    # tf.io.gfile.makedirs(checkpoint_dir)
+    # tf.io.gfile.makedirs(os.path.dirname(checkpoint_meta_dir))
+    
+    # # Resume training when intermediate checkpoints are detected
+    # state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
+    initial_step = int(state["step"])
+
+    # if initial_step == 0 and config.training.load_pretrain:
+    #     pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+    #     state = restore_pretrained_weights(pretrain_dir, state, config.device)
+
+    # Build data iterators
+    dataloaders, datasets = get_dataloaders(
+        config,
+        evaluation=False,
+        ood_eval=False,
+        num_workers=2,
+        infinite_sampler=True,
+    )
+
+    train_dl, eval_dl, _ = dataloaders
+    train_iter = iter(train_dl)
+    eval_iter = iter(eval_dl)
+
+    # Build one-step training and evaluation functions
+    optimize_fn = losses.optimization_manager(config)
+    continuous = config.training.continuous
+    reduce_mean = config.training.reduce_mean
+    likelihood_weighting = config.training.likelihood_weighting
+
+    train_step_fn = losses.get_step_fn(
+        sde,
+        train=True,
+        optimize_fn=optimize_fn,
+        reduce_mean=reduce_mean,
+        likelihood_weighting=likelihood_weighting,
+        scheduler=scheduler,
+        use_fp16=config.training.use_fp16,
+    )
+    eval_step_fn = losses.get_step_fn(
+        sde,
+        train=False,
+        optimize_fn=optimize_fn,
+        reduce_mean=reduce_mean,
+        likelihood_weighting=likelihood_weighting,
+        use_fp16=config.training.use_fp16,
+    )
+
+    diagnsotic_step_fn = losses.get_diagnsotic_fn(
+        sde,
+        reduce_mean=reduce_mean,
+        likelihood_weighting=likelihood_weighting,
+        use_fp16=config.training.use_fp16,
+    )
+
+    # Building sampling functions
+    # if config.training.snapshot_sampling:
+    #     sampling_shape = (
+    #         config.eval.sample_size,
+    #         config.data.num_channels,
+    #         *config.data.image_size,
+    #     )
+    #     print(f"Sampling shape: {sampling_shape}")
+    #     sampling_fn = sampling.get_sampling_fn(
+    #         config, sde, sampling_shape, inverse_scaler, sampling_eps
+    #     )
+
+
+    num_train_steps = config.training.n_iters
+    logging.info("Starting training loop at step %d." % (initial_step,))
+
+    for step in range(initial_step, num_train_steps + 1):
+        batch = next(train_iter)["image"].to(config.device)
+
+        # Execute one training step
+        loss = train_step_fn(state, batch)
+        loss = loss.item()
+
+        if step % config.training.log_freq == 0:
+            logging.info("step: %d, training_loss: %.5e" % (step, loss))
+            writer.add_scalar("training_loss", loss, step)
+            wandb.log({"loss": loss}, step=step)
+
+        # Save a temporary checkpoint to resume training after pre-emption periodically
+        # if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+        #     save_checkpoint(checkpoint_meta_dir, state)
+
+        # Report the loss on an evaluation dataset periodically
+        if step % config.training.eval_freq == 0:
+
+            ema.store(score_model.parameters())
+            ema.copy_to(score_model.parameters())
+
+            eval_loss = 0.0  # torch.zeros(config.eval.batch_size, device=config.device)
+            sigma_losses = {}
+            # sigma_norms = torch.zeros(config.eval.batch_size)
+
+            eval_batch = next(eval_iter)["image"].to(config.device)
+            eval_loss = eval_step_fn(state, eval_batch).item()
+
+            per_sigma_loss = diagnsotic_step_fn(state, eval_batch)
+            for sigma, (loss, norms) in per_sigma_loss.items():
+                # print(norms.shape)
+                if sigma not in sigma_losses:
+                    sigma_losses[sigma] = (loss, norms)
+                else:
+                    l, n = sigma_losses[sigma]
+                    l += loss
+                    n = torch.cat((n, norms))
+                    # print("Catted:", n.shape)
+                    sigma_losses[sigma] = (l, n)
+
+            ema.restore(score_model.parameters())
+
+            logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss))
+            writer.add_scalar("eval_loss", eval_loss, step)
+            wandb.log({"val_loss": eval_loss}, step=step)
+
+            for t, (sigma_loss, sigma_norms) in sigma_losses.items():
+                logging.info(f"\t\t\t t: {t}, eval_loss:{ sigma_loss:.5f}")
+                writer.add_scalar(f"eval_loss/{t}", sigma_loss, step)
+
+                wandb.log({f"val_loss/{t}": sigma_loss}, step=step)
+                wandb.log(
+                    {f"score_dist/{t}": wandb.Histogram(sigma_norms.numpy())},
+                    step=step,
+                )
+
+            # if config.optim.scheduler != "skip":
+            #     wandb.log(
+            #         {
+            #             "lr": state["optimizer"].param_groups[0]["lr"],
+            #         },
+            #         step=step,
+            #     )
+
+        # # Save a checkpoint periodically and generate samples if needed
+        # if (
+        #     step != 0
+        #     and step % config.training.snapshot_freq == 0
+        #     or step == num_train_steps
+        # ):
+        #     # Save the checkpoint.
+        #     save_step = step // config.training.snapshot_freq
+        #     save_checkpoint(
+        #         os.path.join(checkpoint_dir, f"checkpoint_{save_step}.pth"), state
+        #     )
+
+        # # Generate and save samples
+        # if (
+        #     step != 0
+        #     and config.training.snapshot_sampling
+        #     and step % config.training.sampling_freq == 0
+        # ):
+        #     logging.info("step: %d, generating samples..." % (step))
+        #     ema.store(score_model.parameters())
+        #     ema.copy_to(score_model.parameters())
+        #     sample, n = sampling_fn(score_model)
+        #     ema.restore(score_model.parameters())
+        #     this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
+        #     tf.io.gfile.makedirs(this_sample_dir)
+        #     sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
+        #     logging.info("step: %d, done!" % (step))
+
+        #     with tf.io.gfile.GFile(
+        #         os.path.join(this_sample_dir, "sample.np"), "wb"
+        #     ) as fout:
+        #         np.save(fout, sample)
+
+        #     fname = os.path.join(this_sample_dir, "sample.png")
+        #     # print("Sample shape:", sample.shape)
+        #     # ants_plot_scores(sample, fname)
+        #     try:
+        #         plot_slices(sample, fname)
+        #         wandb.log({"sample": wandb.Image(fname)})
+        #     except:
+        #         logging.warning("Plotting failed!")
