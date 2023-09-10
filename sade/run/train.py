@@ -1,13 +1,18 @@
+import logging
 import os
+
+import tensorflow as tf
+import torch
+import wandb
+from optim import optimization_manager
+from torch.utils import tensorboard
+
 from sade.data_loaders import get_dataloaders
+from sade.losses import get_diagnsotic_fn
 from sade.models.ema import ExponentialMovingAverage
 from sade.models.registry import create_model, create_sde
-from sade import losses
-import torch
-from torch.utils import tensorboard
-import tensorflow as tf
-import logging
-import wandb
+from sade.optim import get_step_fn, optimization_manager
+
 
 def trainer(config, workdir):
     """Runs the training pipeline.
@@ -31,18 +36,16 @@ def trainer(config, workdir):
     sde = create_sde(config)
 
     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
-    optimizer = losses.get_optimizer(config, score_model.parameters())
-    scheduler = losses.get_scheduler(config, optimizer)
-    grad_scaler = torch.cuda.amp.GradScaler() if config.training.use_fp16 else None
 
     state = dict(
-        optimizer=optimizer,
         model=score_model,
         ema=ema,
         step=0,
-        scheduler=scheduler,
-        grad_scaler=grad_scaler,
     )
+
+    # Initialize optimization state
+    optimize_fn = optimization_manager(state, config)
+    assert "optimizer" in state, "Optimizer not found in state!"
 
     # Create checkpoints directory
     # checkpoint_dir = os.path.join(workdir, "checkpoints")
@@ -50,7 +53,7 @@ def trainer(config, workdir):
     # checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
     # tf.io.gfile.makedirs(checkpoint_dir)
     # tf.io.gfile.makedirs(os.path.dirname(checkpoint_meta_dir))
-    
+
     # # Resume training when intermediate checkpoints are detected
     # state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state["step"])
@@ -73,21 +76,18 @@ def trainer(config, workdir):
     eval_iter = iter(eval_dl)
 
     # Build one-step training and evaluation functions
-    optimize_fn = losses.optimization_manager(config)
-    continuous = config.training.continuous
     reduce_mean = config.training.reduce_mean
     likelihood_weighting = config.training.likelihood_weighting
 
-    train_step_fn = losses.get_step_fn(
+    train_step_fn = get_step_fn(
         sde,
         train=True,
         optimize_fn=optimize_fn,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        scheduler=scheduler,
         use_fp16=config.training.use_fp16,
     )
-    eval_step_fn = losses.get_step_fn(
+    eval_step_fn = get_step_fn(
         sde,
         train=False,
         optimize_fn=optimize_fn,
@@ -96,7 +96,7 @@ def trainer(config, workdir):
         use_fp16=config.training.use_fp16,
     )
 
-    diagnsotic_step_fn = losses.get_diagnsotic_fn(
+    diagnsotic_step_fn = get_diagnsotic_fn(
         sde,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
@@ -114,7 +114,6 @@ def trainer(config, workdir):
     #     sampling_fn = sampling.get_sampling_fn(
     #         config, sde, sampling_shape, inverse_scaler, sampling_eps
     #     )
-
 
     num_train_steps = config.training.n_iters
     logging.info("Starting training loop at step %d." % (initial_step,))
@@ -137,7 +136,6 @@ def trainer(config, workdir):
 
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
-
             ema.store(score_model.parameters())
             ema.copy_to(score_model.parameters())
 

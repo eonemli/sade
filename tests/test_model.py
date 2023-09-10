@@ -1,6 +1,7 @@
-from sade.models import registry
-from sade.configs.ve import toy_config
 import torch
+
+from sade.configs.ve import toy_config
+from sade.models import registry
 
 CONFIG = toy_config.get_config()
 
@@ -38,7 +39,7 @@ def test_mixed_precision():
 
     with torch.no_grad():
         score = score_fn(x, y)
-    
+
     if CONFIG.device == torch.device("cpu"):
         assert score.dtype == torch.float32
     else:
