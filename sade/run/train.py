@@ -11,7 +11,9 @@ from models.registry import create_model, create_sde
 from optim import get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
-from .utils import restore_checkpoint, save_checkpoint
+from .utils import restore_checkpoint, save_checkpoint, plot_slices
+from .sampling import get_sampling_fn
+import numpy as np
 
 
 def trainer(config, workdir):
@@ -104,16 +106,14 @@ def trainer(config, workdir):
     )
 
     # Building sampling functions
-    # if config.training.snapshot_sampling:
-    #     sampling_shape = (
-    #         config.eval.sample_size,
-    #         config.data.num_channels,
-    #         *config.data.image_size,
-    #     )
-    #     print(f"Sampling shape: {sampling_shape}")
-    #     sampling_fn = sampling.get_sampling_fn(
-    #         config, sde, sampling_shape, inverse_scaler, sampling_eps
-    #     )
+    if config.training.snapshot_sampling:
+        sampling_shape = (
+            config.eval.sample_size,
+            config.data.num_channels,
+            *config.data.image_size,
+        )
+        print(f"Sampling shape: {sampling_shape}")
+        sampling_fn = get_sampling_fn(config, sde, sampling_shape)
 
     num_train_steps = config.training.n_iters
     logging.info("Starting training loop at step %d." % (initial_step,))
@@ -171,52 +171,51 @@ def trainer(config, workdir):
                     step=step,
                 )
 
-            # if config.optim.scheduler != "skip":
-            #     wandb.log(
-            #         {
-            #             "lr": state["optimizer"].param_groups[0]["lr"],
-            #         },
-            #         step=step,
-            #     )
+            if config.optim.scheduler != "skip":
+                wandb.log(
+                    {
+                        "lr": state["optimizer"].param_groups[0]["lr"],
+                    },
+                    step=step,
+                )
 
-        # # Save a checkpoint periodically and generate samples if needed
-        # if (
-        #     step != 0
-        #     and step % config.training.snapshot_freq == 0
-        #     or step == num_train_steps
-        # ):
-        #     # Save the checkpoint.
-        #     save_step = step // config.training.snapshot_freq
-        #     save_checkpoint(
-        #         os.path.join(checkpoint_dir, f"checkpoint_{save_step}.pth"), state
-        #     )
+        # Save a checkpoint periodically and generate samples if needed
+        if (
+            step != 0
+            and step % config.training.snapshot_freq == 0
+            or step == num_train_steps
+        ):
+            # Save the checkpoint.
+            save_step = step // config.training.snapshot_freq
+            save_checkpoint(
+                os.path.join(checkpoint_dir, f"checkpoint_{save_step}.pth"), state
+            )
 
-        # # Generate and save samples
-        # if (
-        #     step != 0
-        #     and config.training.snapshot_sampling
-        #     and step % config.training.sampling_freq == 0
-        # ):
-        #     logging.info("step: %d, generating samples..." % (step))
-        #     ema.store(score_model.parameters())
-        #     ema.copy_to(score_model.parameters())
-        #     sample, n = sampling_fn(score_model)
-        #     ema.restore(score_model.parameters())
-        #     this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
-        #     tf.io.gfile.makedirs(this_sample_dir)
-        #     sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
-        #     logging.info("step: %d, done!" % (step))
+        # Generate and save samples
+        if (
+            step != 0
+            and config.training.snapshot_sampling
+            and step % config.training.sampling_freq == 0
+        ):
+            logging.info("step: %d, generating samples..." % (step))
+            ema.store(score_model.parameters())
+            ema.copy_to(score_model.parameters())
+            sample, n = sampling_fn(score_model)
+            ema.restore(score_model.parameters())
+            this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
+            tf.io.gfile.makedirs(this_sample_dir)
+            sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
+            logging.info("step: %d, done!" % (step))
 
-        #     with tf.io.gfile.GFile(
-        #         os.path.join(this_sample_dir, "sample.np"), "wb"
-        #     ) as fout:
-        #         np.save(fout, sample)
+            with tf.io.gfile.GFile(
+                os.path.join(this_sample_dir, "sample.np"), "wb"
+            ) as fout:
+                np.save(fout, sample)
 
-        #     fname = os.path.join(this_sample_dir, "sample.png")
-        #     # print("Sample shape:", sample.shape)
-        #     # ants_plot_scores(sample, fname)
-        #     try:
-        #         plot_slices(sample, fname)
-        #         wandb.log({"sample": wandb.Image(fname)})
-        #     except:
-        #         logging.warning("Plotting failed!")
+            fname = os.path.join(this_sample_dir, "sample.png")
+
+            try:
+                plot_slices(sample, fname)
+                wandb.log({"sample": wandb.Image(fname)})
+            except:
+                logging.warning("Plotting failed!")

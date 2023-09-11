@@ -62,7 +62,6 @@ def save_checkpoint(ckpt_dir, state):
         "ema": state["ema"].state_dict(),
         "step": state["step"],
     }
-    x={}
 
     if state.get("scheduler") is not None:
         saved_state["scheduler"] = state["scheduler"].state_dict()
@@ -98,3 +97,13 @@ def plot_slices(x, fname, channels_first=False):
     )
 
     return
+
+
+def to_flattened_numpy(x):
+    """Flatten a torch tensor `x` and convert it to numpy."""
+    return x.detach().cpu().numpy().reshape((-1,))
+
+
+def from_flattened_numpy(x, shape):
+    """Form a torch tensor with the given `shape` from a flattened numpy array `x`."""
+    return torch.from_numpy(x.reshape(shape))

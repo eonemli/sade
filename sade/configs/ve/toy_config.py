@@ -16,6 +16,7 @@ def get_config():
     training.log_freq = 2
     training.eval_freq = 5
     training.snapshot_freq_for_preemption = 5
+    training.sampling_freq = 5
 
     data = config.data
     data.image_size = (48, 56, 40)
@@ -52,6 +53,7 @@ def get_config():
 
     # model
     model = config.model
+    model.num_scales = 10
     model.name = "ncsnpp3d"
     model.resblock_type = "biggan"
     model.act = "memswish"
