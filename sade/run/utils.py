@@ -41,7 +41,7 @@ def restore_pretrained_weights(ckpt_dir, state, device):
     assert state["step"] == 0, "Can only load pretrained weights when starting a new run"
     assert tf.io.gfile.exists(
         ckpt_dir
-    ), "Pretrain weights directory {ckpt_dir} does not exist"
+    ), f"Pretrain weights directory {ckpt_dir} does not exist"
 
     loaded_state = torch.load(ckpt_dir, map_location=device)
     # state["model"].load_state_dict(loaded_state["model"], strict=False)

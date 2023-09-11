@@ -16,16 +16,6 @@ from monai.data import CacheDataset
 from monai.transforms import *
 from torch.utils.data import DataLoader, RandomSampler
 
-def get_data_inverse_scaler(config):
-    # """Inverse data normalizer."""
-    # if config.data.centered:
-    #     # Rescale [-1, 1] to [0, 1]
-    #     return lambda x: (x + 1.0) / 2.0
-    # else:
-
-    return lambda x: x
-
-
 def get_dataloaders(
     config,
     evaluation=False,

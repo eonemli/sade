@@ -11,7 +11,7 @@ from models.registry import create_model, create_sde
 from optim import get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
-from .utils import restore_checkpoint, save_checkpoint, plot_slices
+from .utils import restore_checkpoint, restore_pretrained_weights, save_checkpoint, plot_slices
 from .sampling import get_sampling_fn
 import numpy as np
 
@@ -60,9 +60,9 @@ def trainer(config, workdir):
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state["step"])
 
-    # if initial_step == 0 and config.training.load_pretrain:
-    #     pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-    #     state = restore_pretrained_weights(pretrain_dir, state, config.device)
+    if initial_step == 0 and config.training.load_pretrain:
+        pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+        state = restore_pretrained_weights(pretrain_dir, state, config.device)
 
     # Build data iterators
     dataloaders, datasets = get_dataloaders(
