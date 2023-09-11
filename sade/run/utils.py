@@ -1,0 +1,100 @@
+import logging
+import os
+
+import ants
+import numpy as np
+import tensorflow as tf
+import torch
+
+
+from models.ema import ExponentialMovingAverage
+
+
+def restore_checkpoint(ckpt_dir, state, device):
+    if not tf.io.gfile.exists(ckpt_dir):
+        tf.io.gfile.makedirs(os.path.dirname(ckpt_dir))
+        logging.warning(
+            f"No checkpoint found at {ckpt_dir}. " f"Returned the same state as input"
+        )
+        return state
+    else:
+        loaded_state = torch.load(ckpt_dir, map_location=device)
+        if state.get("optimizer") is not None:
+            state["optimizer"].load_state_dict(loaded_state["optimizer"])
+            state["optimizer"].param_groups[0]["capturable"] = True
+
+        state["model"].load_state_dict(loaded_state["model"], strict=False)
+        state["ema"].load_state_dict(loaded_state["ema"])
+        state["step"] = loaded_state["step"]
+
+        if "scheduler" in loaded_state and state["scheduler"] is not None:
+            state["scheduler"].load_state_dict(loaded_state["scheduler"])
+
+        if "grad_scaler" in loaded_state and "grad_scaler" in state:
+            state["grad_scaler"].load_state_dict(loaded_state["grad_scaler"])
+
+        logging.info(f"Loaded model state at step {state['step']} from {ckpt_dir}")
+        return state
+
+
+def restore_pretrained_weights(ckpt_dir, state, device):
+    assert state["step"] == 0, "Can only load pretrained weights when starting a new run"
+    assert tf.io.gfile.exists(
+        ckpt_dir
+    ), "Pretrain weights directory {ckpt_dir} does not exist"
+
+    loaded_state = torch.load(ckpt_dir, map_location=device)
+    # state["model"].load_state_dict(loaded_state["model"], strict=False)
+    dummy_ema = ExponentialMovingAverage(state["model"].parameters(), decay=0.999)
+    dummy_ema.load_state_dict(loaded_state["ema"])
+    dummy_ema.lazy_copy_to(state["model"].parameters())
+    logging.info(
+        f"Loaded pretrained EMA weights from {ckpt_dir} at {loaded_state['step']}"
+    )
+
+    return state
+
+
+def save_checkpoint(ckpt_dir, state):
+    saved_state = {
+        "optimizer": state["optimizer"].state_dict(),
+        "model": state["model"].state_dict(),
+        "ema": state["ema"].state_dict(),
+        "step": state["step"],
+    }
+    x={}
+
+    if state.get("scheduler") is not None:
+        saved_state["scheduler"] = state["scheduler"].state_dict()
+
+    if state.get("scheduler") is not None:
+        saved_state["grad_scaler"] = state["grad_scaler"].state_dict()
+
+    torch.save(saved_state, ckpt_dir)
+    return
+
+
+def plot_slices(x, fname, channels_first=False):
+    """Plot slices of a 5D tensor."""
+
+    if channels_first:
+        if isinstance(x, np.ndarray):
+            x = np.transpose(x, axes=(0, 2, 3, 4, 1))
+
+        if isinstance(x, torch.Tensor):
+            x = x.permute(0, 2, 3, 4, 1).detach().cpu().numpy()
+
+    # Get alternating channels per sample
+    c = x.shape[-1]
+    x_imgs = [ants.from_numpy(sample[..., i % c]) for i, sample in enumerate(x)]
+    ants.plot_ortho_stack(
+        x_imgs,
+        orient_labels=False,
+        dpi=100,
+        filename=fname,
+        transparent=True,
+        crop=True,
+        scale=(0.01, 0.99),
+    )
+
+    return

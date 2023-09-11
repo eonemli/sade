@@ -16,33 +16,6 @@ from monai.data import CacheDataset
 from monai.transforms import *
 from torch.utils.data import DataLoader, RandomSampler
 
-
-def plot_slices(x, fname, channels_first=False):
-    # print("Before plotting:", x.shape)
-
-    if channels_first:
-        if isinstance(x, np.ndarray):
-            x = np.transpose(x, axes=(0, 2, 3, 4, 1))
-
-        if isinstance(x, torch.Tensor):
-            x = x.permute(0, 2, 3, 4, 1).detach().cpu().numpy()
-
-    # Get alternating channels per sample
-    c = x.shape[-1]
-    x_imgs = [ants.from_numpy(sample[..., i % c]) for i, sample in enumerate(x)]
-    ants.plot_ortho_stack(
-        x_imgs,
-        orient_labels=False,
-        dpi=100,
-        filename=fname,
-        transparent=True,
-        crop=True,
-        scale=(0.01, 0.99),
-    )
-
-    return
-
-
 def get_data_inverse_scaler(config):
     # """Inverse data normalizer."""
     # if config.data.centered:

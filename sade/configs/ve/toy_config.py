@@ -12,9 +12,10 @@ def get_config():
     training.likelihood_weighting = False
     training.reduce_mean = True
     training.batch_size = 4
-    training.n_iters = 10
-    training.log_freq = 1
+    training.n_iters = 13
+    training.log_freq = 2
     training.eval_freq = 5
+    training.snapshot_freq_for_preemption = 5
 
     data = config.data
     data.image_size = (48, 56, 40)

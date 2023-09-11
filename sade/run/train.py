@@ -11,6 +11,8 @@ from models.registry import create_model, create_sde
 from optim import get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
+from .utils import restore_checkpoint, save_checkpoint
+
 
 def trainer(config, workdir):
     """Runs the training pipeline.
@@ -46,14 +48,14 @@ def trainer(config, workdir):
     assert "optimizer" in state, "Optimizer not found in state!"
 
     # Create checkpoints directory
-    # checkpoint_dir = os.path.join(workdir, "checkpoints")
-    # # Intermediate checkpoints to resume training after pre-emption in cloud environments
-    # checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
-    # tf.io.gfile.makedirs(checkpoint_dir)
-    # tf.io.gfile.makedirs(os.path.dirname(checkpoint_meta_dir))
+    checkpoint_dir = os.path.join(workdir, "checkpoints")
+    # Intermediate checkpoints to resume training after pre-emption in cloud environments
+    checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
+    tf.io.gfile.makedirs(checkpoint_dir)
+    tf.io.gfile.makedirs(os.path.dirname(checkpoint_meta_dir))
 
     # # Resume training when intermediate checkpoints are detected
-    # state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
+    state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state["step"])
 
     # if initial_step == 0 and config.training.load_pretrain:
@@ -129,31 +131,28 @@ def trainer(config, workdir):
             wandb.log({"loss": loss}, step=step)
 
         # Save a temporary checkpoint to resume training after pre-emption periodically
-        # if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
-        #     save_checkpoint(checkpoint_meta_dir, state)
+        if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
+            save_checkpoint(checkpoint_meta_dir, state)
 
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
             ema.store(score_model.parameters())
             ema.copy_to(score_model.parameters())
 
-            eval_loss = 0.0  # torch.zeros(config.eval.batch_size, device=config.device)
+            eval_loss = 0.0
             sigma_losses = {}
-            # sigma_norms = torch.zeros(config.eval.batch_size)
 
             eval_batch = next(eval_iter)["image"].to(config.device)
             eval_loss = eval_step_fn(state, eval_batch).item()
 
             per_sigma_loss = diagnsotic_step_fn(state, eval_batch)
             for sigma, (loss, norms) in per_sigma_loss.items():
-                # print(norms.shape)
                 if sigma not in sigma_losses:
                     sigma_losses[sigma] = (loss, norms)
                 else:
                     l, n = sigma_losses[sigma]
                     l += loss
                     n = torch.cat((n, norms))
-                    # print("Catted:", n.shape)
                     sigma_losses[sigma] = (l, n)
 
             ema.restore(score_model.parameters())
