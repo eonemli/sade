@@ -4,7 +4,7 @@ import os
 import tensorflow as tf
 import torch
 import wandb
-from data_loaders import get_dataloaders
+from datasets.loaders import get_dataloaders
 from losses import get_diagnsotic_fn
 from models.ema import ExponentialMovingAverage
 from models.registry import create_model, create_sde
