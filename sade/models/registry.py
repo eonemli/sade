@@ -6,7 +6,7 @@ import logging
 import numpy as np
 import torch
 import wandb
-from sde_lib import VESDE, VPSDE, subVPSDE
+from sade.sde_lib import VESDE, VPSDE, subVPSDE
 from torchinfo import summary
 
 _MODELS = {}

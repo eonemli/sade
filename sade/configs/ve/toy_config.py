@@ -21,7 +21,7 @@ def get_config():
     training.pretrain_dir = "workdir/test/pretrain/"
 
     data = config.data
-    data.image_size = (48, 56, 40)
+    data.image_size = (48, 64, 40)
     data.spacing_pix_dim = 4.0
     data.num_channels = 1
     data.cache_rate = 0.0

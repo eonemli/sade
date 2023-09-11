@@ -1,7 +1,7 @@
 """All functions related to loss computation.
 """
 import torch
-from models.registry import get_score_fn
+from sade.models.registry import get_score_fn
 
 
 def get_sde_loss_fn(

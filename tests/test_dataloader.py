@@ -4,7 +4,7 @@ import ml_collections
 import pytest
 import torch
 
-from datasets.loaders import get_dataloaders
+from sade.datasets.loaders import get_dataloaders
 from sade.datasets.filenames import get_image_files_list
 
 

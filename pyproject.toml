@@ -9,7 +9,8 @@ readme = "README.md"
 version = "0.0.1"
 
 [tool.setuptools.packages.find]
-where = ["sade"]
+where = ["."]
+exclude = ["docker"]
 
 [tool.black]
 line-length = 92
