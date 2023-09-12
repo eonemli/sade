@@ -38,7 +38,7 @@ score_model = ncsnpp3d.SegResNetpp(config)
 score_model = score_model.eval()
 x = torch.ones(8, 2, *config.data.image_size)
 y = torch.tensor([1] * 8)
-summary(score_model, input_data=(x,y))
+summary(score_model, input_data=(x, y))
 # breakpoint()
 with torch.no_grad():
     score = score_model(x, y)

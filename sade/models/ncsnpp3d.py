@@ -112,9 +112,7 @@ class SegResNetpp(registry.BaseScoreModel):
         else:
             self.conv_layer = get_conv_layer
 
-        self.convInit = self.conv_layer(
-            spatial_dims, self.in_channels, self.init_filters
-        )
+        self.convInit = self.conv_layer(spatial_dims, self.in_channels, self.init_filters)
 
         if resblock_type == "segresnet":
             ResBlockpp = functools.partial(
@@ -243,9 +241,7 @@ class SegResNetpp(registry.BaseScoreModel):
             ]
 
             if jit_compile:
-                up_conv_block = MultiSequential(
-                    *list(map(torch.jit.script, up_conv_block))
-                )
+                up_conv_block = MultiSequential(*list(map(torch.jit.script, up_conv_block)))
             else:
                 up_conv_block = MultiSequential(*up_conv_block)
 

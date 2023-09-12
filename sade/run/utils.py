@@ -48,9 +48,7 @@ def restore_pretrained_weights(ckpt_dir, state, device):
     dummy_ema = ExponentialMovingAverage(state["model"].parameters(), decay=0.999)
     dummy_ema.load_state_dict(loaded_state["ema"])
     dummy_ema.lazy_copy_to(state["model"].parameters())
-    logging.info(
-        f"Loaded pretrained EMA weights from {ckpt_dir} at {loaded_state['step']}"
-    )
+    logging.info(f"Loaded pretrained EMA weights from {ckpt_dir} at {loaded_state['step']}")
 
     return state
 

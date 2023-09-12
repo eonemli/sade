@@ -14,6 +14,7 @@ from monai.data import CacheDataset
 from monai.transforms import *
 from torch.utils.data import DataLoader, RandomSampler
 
+
 def get_dataloaders(
     config,
     evaluation=False,
@@ -38,7 +39,6 @@ def get_dataloaders(
     # Sanity checks
     assert re.match(r"(abcd|ibis)", config.data.dataset.lower())
     assert re.match(r"(tumor|lesion|ds-sa)", config.data.ood_ds.lower())
-    
 
     # Directory that holds files with train/test splits and other filenames
     splits_dir = config.data.splits_dir
