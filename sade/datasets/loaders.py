@@ -1,6 +1,7 @@
 """Return training and evaluation/test datasets from config files."""
 import functools
 import os
+import re
 
 from sade.datasets.filenames import get_image_files_list
 from sade.datasets.transforms import (
@@ -35,15 +36,16 @@ def get_dataloaders(
         )
 
     # Sanity checks
-    assert config.data.dataset.lower() in ["abcd", "ibis"]
-    assert config.data.ood_ds.lower() in ["tumor", "lesion", "ds-sa"]
+    assert re.match(r"(abcd|ibis)", config.data.dataset.lower())
+    assert re.match(r"(tumor|lesion|ds-sa)", config.data.ood_ds.lower())
+    
 
     # Directory that holds files with train/test splits and other filenames
     splits_dir = config.data.splits_dir
     # Directory that holds the data samples
     data_dir_path = config.data.dir_path
     cache_rate = config.data.cache_rate
-    dataset_name = config.data.dataset.lower()
+    dataset_name = config.data.dataset
 
     train_file_list = None
     val_file_list = None
@@ -58,12 +60,12 @@ def get_dataloaders(
         train_file_list = None
         ood_dataset_name = config.data.ood_ds.lower()
         if "lesion" in ood_dataset_name:
-            dirname = f"slicer_lesions/{dataset_name}"
-            data_dir_path = os.path.realpath(os.path.join(data_dir_path, "..", dirname))
-
+            dirname = f"slicer_lesions/{ood_dataset_name}/{dataset_name}"
+            ood_dir_path = os.path.abspath(f"{data_dir_path}/..")
+            ood_dir_path = f"{ood_dir_path}/{dirname}"
             # Getting lesion samples
             _, _, test_file_list = get_image_files_list(
-                ood_dataset_name, data_dir_path, splits_dir
+                ood_dataset_name, ood_dir_path, splits_dir
             )
             # lesions will be loaded alongside label masks
             test_transform = get_lesion_transform(config)

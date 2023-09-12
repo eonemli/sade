@@ -17,13 +17,13 @@ def get_config():
     training.eval_freq = 5
     training.snapshot_freq_for_preemption = 50
     training.sampling_freq = 50
-    training.load_pretrain = True
+    training.load_pretrain = False
     training.pretrain_dir = "workdir/test/pretrain/"
 
     data = config.data
     data.image_size = (48, 64, 40)
     data.spacing_pix_dim = 4.0
-    data.num_channels = 1
+    data.num_channels = 2
     data.cache_rate = 0.0
 
     cur_dir = os.path.abspath(os.path.dirname(__file__))

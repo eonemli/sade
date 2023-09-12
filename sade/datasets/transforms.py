@@ -132,7 +132,7 @@ def get_train_transform(config):
     return Compose(
         [
             LoadImaged("image", image_only=True),
-            # SqueezeDimd("image", dim=3),
+            SqueezeDimd("image", dim=3),
             EnsureChannelFirstd("image"),
             SpatialCropd("image", roi_start=[11, 9, 0], roi_end=[172, 205, 152]),
             Spacingd("image", pixdim=spacing),
@@ -167,7 +167,7 @@ def get_val_transform(config):
     return Compose(
         [
             LoadImaged("image", image_only=True),
-            # SqueezeDimd("image", dim=3),
+            SqueezeDimd("image", dim=3),
             EnsureChannelFirstd("image"),
             SpatialCropd("image", roi_start=[11, 9, 0], roi_end=[172, 205, 152]),
             Spacingd("image", pixdim=spacing),
@@ -204,7 +204,7 @@ def get_tumor_transform(config):
     return Compose(
         [
             LoadImaged("image", image_only=True),
-            # SqueezeDimd("image", dim=3),
+            SqueezeDimd("image", dim=3),
             EnsureChannelFirstd("image"),
             SpatialCropd("image", roi_start=[11, 9, 0], roi_end=[172, 205, 152]),
             Spacingd("image", pixdim=spacing),
@@ -220,7 +220,7 @@ def get_lesion_transform(config):
     return Compose(
         [
             LoadImaged(["image", "label"], image_only=True),
-            # SqueezeDimd(["image"], dim=3),
+            SqueezeDimd(["image"], dim=3),
             EnsureChannelFirstd(["image"]),
             EnsureChannelFirstd(["label"], channel_dim="no_channel"),
             SpatialCropd(

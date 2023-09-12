@@ -8,9 +8,8 @@ def clean(x):
 
 def get_image_files_list(dataset_name, dataset_dir, splits_dir):
     filenames = {}
-    dataset_name = dataset_name.lower()
 
-    if dataset_name == "abcd":
+    if dataset_name.lower() == "abcd":
         for split in ["train", "val", "test"]:
             with open(os.path.join(splits_dir, f"{split}_keys.txt"), "r") as f:
                 filenames[split] = [clean(x) for x in f.readlines()]
@@ -27,7 +26,7 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
             {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in filenames["test"]
         ]
 
-    elif dataset_name == "ibis":
+    elif dataset_name.lower() == "ibis":
         train_file_list = val_file_list = None
         with open(os.path.join(splits_dir, "ibis_inlier_keys.txt"), "r") as f:
             filenames["inlier"] = [x.strip() for x in f.readlines()]
@@ -36,7 +35,7 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
             {"image": os.path.join(dataset_dir, f"IBIS_{x}.nii.gz")}
             for x in filenames["inlier"]
         ]
-    elif dataset_name in ["ds-sa"]:
+    elif dataset_name.lower() in ["ds-sa"]:
         train_file_list = val_file_list = None
         fname = os.path.join(splits_dir, f"{dataset_name}_outlier_keys.txt")
         assert os.path.exists(fname), "File for {dataset_name} does not exist at {fname}"
@@ -51,10 +50,9 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
         train_file_list = val_file_list = None
         test_file_list = [
             {"image": p, "label": p.replace(".nii.gz", "_label.nii.gz")}
-            for p in glob.glob(f"{path}/*/*.nii.gz")
+            for p in glob.glob(f"{dataset_dir}/*/*.nii.gz")
             if "label" not in p  # very lazy, i know :)
         ]
-
     else:
         NotImplementedError
 
