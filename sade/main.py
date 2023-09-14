@@ -5,7 +5,6 @@ import sys
 import warnings
 
 import ml_collections
-import tensorflow as tf
 import torch
 import wandb
 from absl import app, flags
@@ -42,7 +41,7 @@ def main(argv):
 
     elif FLAGS.mode == "train":
         # Create the working directory
-        tf.io.gfile.makedirs(FLAGS.workdir)
+        os.makedirs(FLAGS.workdir, exist_ok=True)
 
         # Set logger so that it outputs to both console and file
         # Make logging work for both disk and Google Cloud Storage

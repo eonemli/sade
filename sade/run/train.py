@@ -1,7 +1,7 @@
+import functools
 import logging
 import os
 
-import tensorflow as tf
 import torch
 import wandb
 from datasets.loaders import get_dataloaders
@@ -20,6 +20,8 @@ from .utils import (
 from .sampling import get_sampling_fn
 import numpy as np
 
+makedirs = functools.partial(os.makedirs, exist_ok=True)
+
 
 def trainer(config, workdir):
     """Runs the training pipeline.
@@ -32,10 +34,10 @@ def trainer(config, workdir):
 
     # Create directories for experimental logs
     sample_dir = os.path.join(workdir, "samples")
-    tf.io.gfile.makedirs(sample_dir)
+    makedirs(sample_dir)
 
     tb_dir = os.path.join(workdir, "tensorboard")
-    tf.io.gfile.makedirs(tb_dir)
+    makedirs(tb_dir)
     writer = tensorboard.SummaryWriter(tb_dir)
 
     # Initialize model.
@@ -58,8 +60,8 @@ def trainer(config, workdir):
     checkpoint_dir = os.path.join(workdir, "checkpoints")
     # Intermediate checkpoints to resume training after pre-emption in cloud environments
     checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
-    tf.io.gfile.makedirs(checkpoint_dir)
-    tf.io.gfile.makedirs(os.path.dirname(checkpoint_meta_dir))
+    makedirs(checkpoint_dir)
+    makedirs(os.path.dirname(checkpoint_meta_dir))
 
     # # Resume training when intermediate checkpoints are detected
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
@@ -208,13 +210,11 @@ def trainer(config, workdir):
             sample, n = sampling_fn(score_model)
             ema.restore(score_model.parameters())
             this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
-            tf.io.gfile.makedirs(this_sample_dir)
+            makedirs(this_sample_dir)
             sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
             logging.info("step: %d, done!" % (step))
 
-            with tf.io.gfile.GFile(
-                os.path.join(this_sample_dir, "sample.np"), "wb"
-            ) as fout:
+            with os.GFile(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
                 np.save(fout, sample)
 
             fname = os.path.join(this_sample_dir, "sample.png")
