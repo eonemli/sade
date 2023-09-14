@@ -7,7 +7,7 @@ import wandb
 from datasets.loaders import get_dataloaders
 from losses import get_diagnsotic_fn
 from models.ema import ExponentialMovingAverage
-from models.registry import create_model, create_sde
+import models.registry as registry
 from optim import get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
@@ -39,8 +39,8 @@ def trainer(config, workdir):
     writer = tensorboard.SummaryWriter(tb_dir)
 
     # Initialize model.
-    score_model = create_model(config)
-    sde = create_sde(config)
+    score_model = registry.create_model(config, print_summary=True)
+    sde = registry.create_sde(config)
 
     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
 
