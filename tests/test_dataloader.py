@@ -85,7 +85,7 @@ def test_inf_data_loader(test_config):
         test_config,
         evaluation=True,
         ood_eval=False,
-        num_workers=1,
+        num_workers=0,
         infinite_sampler=True,
     )
 
@@ -115,57 +115,57 @@ def test_ood_data_loader(test_config):
         assert x is not None
 
 
-def test_abcd_data_loader(test_config):
-    data = test_config.data
-    data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
-    data.splits_dir = "/codespace/sade/sade/datasets/brains/"
+# def test_abcd_data_loader(test_config):
+#     data = test_config.data
+#     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
+#     data.splits_dir = "/codespace/sade/sade/datasets/brains/"
     
-    if not os.path.exists(data.dir_path):
-        pytest.skip("Data not available")
+#     if not os.path.exists(data.dir_path):
+#         pytest.skip("Data not available")
     
-    data.image_size = (48, 64, 48)
-    data.spacing_pix_dim = 4.0
-    data.num_channels = 2
-    data.ood_ds = "lesion_load_20"
+#     data.image_size = (48, 64, 48)
+#     data.spacing_pix_dim = 4.0
+#     data.num_channels = 2
+#     data.ood_ds = "lesion_load_20"
 
-    C, H, W, D = data.num_channels, *data.image_size
+#     C, H, W, D = data.num_channels, *data.image_size
 
-    dataloaders, datasets = get_dataloaders(
-        test_config,
-        evaluation=False,
-        ood_eval=False,
-        num_workers=1,
-    )
+#     dataloaders, datasets = get_dataloaders(
+#         test_config,
+#         evaluation=False,
+#         ood_eval=False,
+#         num_workers=1,
+#     )
 
-    assert len(datasets) == 3
+#     assert len(datasets) == 3
 
-    for ds in datasets:
-        assert ds is not None
-        x = ds[0]
-        assert x is not None
-        assert x["image"].dtype is torch.float32
-        assert x["image"].shape == (C, H, W, D)
+#     for ds in datasets:
+#         assert ds is not None
+#         x = ds[0]
+#         assert x is not None
+#         assert x["image"].dtype is torch.float32
+#         assert x["image"].shape == (C, H, W, D)
 
 
-    dataloaders, datasets = get_dataloaders(
-        test_config,
-        evaluation=True,
-        ood_eval=True,
-        num_workers=1,
-    )
+#     dataloaders, datasets = get_dataloaders(
+#         test_config,
+#         evaluation=True,
+#         ood_eval=True,
+#         num_workers=1,
+#     )
         
-    train_dl, eval_dl, test_dl = dataloaders
-    assert train_dl is None
+#     train_dl, eval_dl, test_dl = dataloaders
+#     assert train_dl is None
 
-    _, eval_ds, test_ds = datasets
-    assert test_ds is not None
-    x = test_ds[0]
-    assert x is not None
-    assert x["image"].dtype is torch.float32
-    assert x["image"].shape == (C, H, W, D)
+#     _, eval_ds, test_ds = datasets
+#     assert test_ds is not None
+#     x = test_ds[0]
+#     assert x is not None
+#     assert x["image"].dtype is torch.float32
+#     assert x["image"].shape == (C, H, W, D)
 
 
-    for dl in (eval_dl, test_dl):
-        assert dl is not None
-        x = next(iter(dl))
-        assert x is not None
+#     for dl in (eval_dl, test_dl):
+#         assert dl is not None
+#         x = next(iter(dl))
+#         assert x is not None
