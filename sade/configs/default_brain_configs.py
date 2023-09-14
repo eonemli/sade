@@ -81,6 +81,7 @@ def get_default_configs():
     # flow-model
     config.flow = flow = ml_collections.ConfigDict()
     flow.num_blocks = 4
+    flow.patch_batch_size = 8
     flow.context_embedding_size = 128
     flow.use_global_context = True
     flow.global_embedding_size = 512
@@ -99,7 +100,6 @@ def get_default_configs():
 
     # Flow training configs
     flow.lr = 3e-4
-    flow.patch_batch_size = 8
     flow.training_kimg = 100
     flow.ema_halflife_kimg = 50
     flow.ema_rampup_ratio = 0.01

@@ -28,7 +28,6 @@ def subnet_fc(c_in, c_out, ndim=256, act=nn.LeakyReLU(), input_norm=True):
     )
 
 
-@registry.register_model(name="flow3d")
 class PatchFlow(torch.nn.Module):
     """
     Contructs a conditional flow model that operates on patches of an image.
@@ -227,9 +226,6 @@ class PatchFlow(torch.nn.Module):
 
         return zs, jacs
 
-    def logprob(self, zs, log_jac_dets):
-        return gaussian_logprob(zs, log_jac_dets)
-
     def nll(self, zs, log_jac_dets):
         return -torch.mean(self.logprob(zs, log_jac_dets))
 
@@ -239,9 +235,8 @@ class PatchFlow(torch.nn.Module):
         b = x.shape[0]
         h, w, d = self.spatial_res
         zs, jacs = self.forward(x, fast=fast)
-        logpx = self.logprob(zs, jacs)
+        logpx = gaussian_logprob(zs, jacs)
         logpx = rearrange(logpx, "(h w d) b -> b h w d", b=b, h=h, w=w, d=d)
-
         return logpx
 
     @staticmethod
@@ -273,8 +268,6 @@ class PatchFlow(torch.nn.Module):
                 patch_feature,
                 c=[context_vector],
             )
-            if flow.gmm is not None:
-                z = flow.gmm(z, context_vector[:, : flow.context_embedding_size])
 
             opt.zero_grad(set_to_none=True)
             loss = flow.nll(z, ldj)

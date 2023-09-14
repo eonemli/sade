@@ -6,6 +6,7 @@ import logging
 import numpy as np
 import torch
 import wandb
+from sade.models.flows import PatchFlow
 from sade.sde_lib import VESDE, VPSDE, subVPSDE
 from torchinfo import summary
 
@@ -26,12 +27,10 @@ def register_model(cls=None, *, name=None):
     """A decorator for registering model classes."""
 
     def _register(cls):
-        if name is None:
-            local_name = cls.__name__
-        else:
-            local_name = name
+        local_name = name or cls.__name__
         if local_name in _MODELS:
-            raise ValueError(f"Already registered model with name: {local_name}")
+            logging.warning(f"Already registered model with name: {local_name}")
+            return cls
         _MODELS[local_name] = cls
         return cls
 
@@ -115,6 +114,15 @@ def create_sde(config):
     logging.info("SDE created")
     return sde
 
+def create_flow(config):
+    C = config.msma.n_timesteps
+    H,W,D = config.data.image_size
+    input_size = (C,H,W,D)
+
+    flow_model = PatchFlow(config, input_size)
+
+    logging.info("Flow created")
+    return flow_model
 
 def get_model_fn(model, train=False, amp=False):
     """Create a function to give the output of the score-based model.
