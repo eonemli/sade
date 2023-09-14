@@ -67,8 +67,8 @@ def get_default_configs():
 
     # model
     config.model = model = ml_collections.ConfigDict()
-    model.sigma_max = 274.0  # For medres
-    model.sigma_min = 0.03
+    model.sigma_max = 545.0  # For medres
+    model.sigma_min = 0.06
     model.num_scales = 1000
     model.dropout = 0.0
     model.embedding_type = "fourier"
@@ -77,6 +77,32 @@ def get_default_configs():
     model.resblock_pp = False
     model.dilation = 1
     model.jit = False
+
+    # flow-model
+    config.flow = flow = ml_collections.ConfigDict()
+    flow.num_blocks = 4
+    flow.context_embedding_size = 128
+    flow.use_global_context = True
+    flow.global_embedding_size = 512
+
+    # Config for patch sizes
+    flow.local_patch_config = ml_collections.ConfigDict()
+    flow.local_patch_config.kernel_size = 3
+    flow.local_patch_config.padding = 1
+    flow.local_patch_config.stride = 1
+
+    # Config for larger receptive fields outputting gobal context
+    flow.global_patch_config = ml_collections.ConfigDict()
+    flow.global_patch_config.kernel_size = 11
+    flow.global_patch_config.padding = 2
+    flow.global_patch_config.stride = 4
+
+    # Flow training configs
+    flow.lr = 3e-4
+    flow.patch_batch_size = 8
+    flow.training_kimg = 100
+    flow.ema_halflife_kimg = 50
+    flow.ema_rampup_ratio = 0.01
 
     # optimization
     config.optim = optim = ml_collections.ConfigDict()

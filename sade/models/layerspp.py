@@ -6,6 +6,7 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from einops import rearrange
 from einops.layers.torch import Rearrange
 from monai.networks.blocks.convolutions import Convolution
 from monai.networks.blocks.segresnet_block import ResBlock
@@ -17,6 +18,7 @@ from monai.utils import InterpolateMode, UpsampleMode
 from . import layers
 
 default_init = layers.default_init
+PositionalEncoding3D = layers.PositionalEncoding3D
 
 
 class GaussianFourierProjection(nn.Module):
@@ -255,12 +257,22 @@ class ResnetBlockBigGANpp(nn.Module):
         temb_dim: int = None,
         dropout: float = 0.0,
         init_scale: float = 0.0,
+        downsample: bool = False,
         pre_conv: Any = None,
     ):
         super().__init__()
 
         self.n_channels = in_channels
         self.pre_conv = pre_conv
+
+        if downsample:
+            self.pre_conv = nn.Conv3d(
+                in_channels=in_channels,
+                out_channels=in_channels,
+                kernel_size=3,
+                padding=1,
+                stride=2,
+            )
 
         # print("IN_CHANNELS:", in_channels)
         self.norm_0 = get_norm_layer(
@@ -357,5 +369,57 @@ class ChannelAttentionBlock3d(nn.Module):
         h = self.proj(h)
         x = x + h
         x = x * self.skip_scale
+
+        return x
+
+
+class FlowAttentionBlock(nn.Module):
+    def __init__(self, input_size, embed_dim, outdim=None, num_heads=8, dropout=0.1):
+        super().__init__()
+        num_sigmas, h, w, d = input_size
+        outdim = outdim or embed_dim
+
+        self.spatial_size = (h, w, d)
+        self.proj = nn.Linear(num_sigmas, embed_dim, bias=False)
+        self.norm = nn.LayerNorm(embed_dim)
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, batch_first=True)
+        self.conv_res_block = ResBlockpp(
+            3, num_sigmas, norm=("layer", {"normalized_shape": self.spatial_size})
+        )
+
+        enc = PositionalEncoding3D(embed_dim)(torch.zeros(1, embed_dim, h, w, d))
+        enc = rearrange(enc, "b c h w d -> b (h w d) c")
+        self.register_buffer("position_encoding", enc)
+
+        self.ffn = nn.Sequential(
+            nn.Linear(embed_dim, outdim, bias=False),
+            nn.GELU(),
+            nn.Dropout(dropout),
+            nn.Linear(outdim, outdim, bias=False),
+        )
+        self.normout = nn.LayerNorm(outdim)
+
+    def forward(self, x, attn_mask=None):
+        """
+        Returns:
+            x: Tensor of shape batch x 1 x out_dim
+        """
+        x = self.conv_res_block(x)
+        x = rearrange(x, "b c h w d -> b (h w d) c")
+        x = self.proj(x)
+        x = self.norm(x.add_(self.position_encoding))
+
+        h, _ = self.attention(
+            x,
+            x,
+            x,
+            attn_mask=attn_mask,
+            need_weights=False,
+        )
+
+        x = self.normout(self.ffn(x + h))
+
+        # Spatial mean
+        x = x.mean(dim=1)
 
         return x
