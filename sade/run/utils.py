@@ -101,3 +101,14 @@ def to_flattened_numpy(x):
 def from_flattened_numpy(x, shape):
     """Form a torch tensor with the given `shape` from a flattened numpy array `x`."""
     return torch.from_numpy(x.reshape(shape))
+
+
+def get_flow_rundir(config, workdir):
+    hparams = f"psz{config.flow.local_patch_config.kernel_size}"
+    hparams += f"globalpsz{config.flow.global_patch_config.kernel_size}"
+    hparams += (
+        f"-nb{config.flow.num_blocks}-lr{config.flow.lr}-bs{config.training.batch_size}"
+    )
+    hparams += f"-np{config.flow.patches_per_train_step}-kimg{config.flow.training_kimg}"
+    rundir = os.path.join(workdir, "flow", hparams)
+    return rundir

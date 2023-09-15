@@ -10,6 +10,7 @@ import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
 from run.train import trainer
+from run.flows import flow_trainer
 
 warnings.filterwarnings("ignore")
 
@@ -67,6 +68,27 @@ def main(argv):
 
             # Run the training pipeline
             trainer(config, FLAGS.workdir)
+    elif FLAGS.mode == "flow-train":
+        # Create the working directory
+        os.makedirs(FLAGS.workdir, exist_ok=True)
+
+        # Override root handler
+        logging.root.handlers = []
+        logging.basicConfig(
+            level=logging.INFO,
+            format="%(levelname)s - %(filename)s - %(asctime)s - %(message)s",
+        )
+
+        with wandb.init(
+            project=FLAGS.project,
+            config=FLAGS.config.to_dict(),
+            resume="allow",
+            sync_tensorboard=True,
+        ):
+            config = ml_collections.ConfigDict(wandb.config)
+
+            # Run the training pipeline
+            flow_trainer(config, FLAGS.workdir)
     else:
         raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 

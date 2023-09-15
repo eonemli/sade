@@ -103,6 +103,8 @@ def get_default_configs():
     flow.training_kimg = 100
     flow.ema_halflife_kimg = 50
     flow.ema_rampup_ratio = 0.01
+    flow.patches_per_train_step = 256
+    flow.log_tensorboard = True
 
     # optimization
     config.optim = optim = ml_collections.ConfigDict()
