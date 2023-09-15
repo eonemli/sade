@@ -3,7 +3,6 @@ from functools import partial
 import logging
 import FrEIA.framework as Ff
 import FrEIA.modules as Fm
-import numpy as np
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
@@ -11,6 +10,7 @@ from sade.models.layers import PositionalEncoding3D, SpatialNorm3D
 from sade.models.layerspp import get_conv_layer, FlowAttentionBlock
 
 
+@torch.jit.script
 def gaussian_logprob(z, ldj):
     _GCONST_ = -0.9189385332046727  # ln(sqrt(2*pi))
     return _GCONST_ - 0.5 * torch.sum(z**2, dim=-1) + ldj
@@ -227,7 +227,7 @@ class PatchFlow(torch.nn.Module):
         return zs, jacs
 
     def nll(self, zs, log_jac_dets):
-        return -torch.mean(self.logprob(zs, log_jac_dets))
+        return -torch.mean(gaussian_logprob(zs, log_jac_dets))
 
     @torch.no_grad()
     def log_density(self, x, fast=True):
@@ -240,40 +240,54 @@ class PatchFlow(torch.nn.Module):
         return logpx
 
     @staticmethod
-    def stochastic_train_step(flow, x, opt, n_patches=1):
-        flow.train()
-        B, C, _, _, _ = x.shape
-        h = flow.local_pooler(x)
+    def stochastic_train_step(scores, x_batch, flow_model, opt, n_patches=1):
+        flow_model.train()
+
+        h = flow_model.local_pooler(scores).cpu()
+        flow_model.position_encoder = flow_model.position_encoder.cpu()
         local_patches = rearrange(h, "b c h w d -> (h w d) b c")
+        context = rearrange(flow_model.position_encoder(h), "b c h w d -> (h w d) b c")
 
-        flow.position_encoder = flow.position_encoder.cpu()
-        context = rearrange(flow.position_encoder(h), "b c h w d -> (h w d) b c")
+        # Get brain masks
+        mask = x_batch > x_batch.min()
 
-        rand_idx = torch.randperm(flow.num_patches)[:n_patches]
+        # Generous mask that will work for all samples
+        mask = mask.sum(0).sum(0) > 0
+        mask = mask.flatten().cpu()
+
+        # Get indices for patches inside the brain mask
+        masked_idxs = torch.arange(flow_model.num_patches)[mask]
+        # Get random patches
+        shuffled_idx = torch.randperm(len(masked_idxs))
+        rand_idx = masked_idxs[shuffled_idx]
+        rand_idx = rand_idx[:n_patches]
+
         local_loss = 0.0
         for idx in rand_idx:
             patch_feature, context_vector = (
                 local_patches[idx],
                 context[idx],
             )
-            context_vector = context_vector.to(self.device)
-            if flow.use_global_context:
+            patch_feature = patch_feature.to(flow_model.device)
+            context_vector = context_vector.to(flow_model.device)
+
+            if flow_model.use_global_context:
                 # Need separate loss for each patch
-                global_pooled_image = flow.global_pooler(x)
-                global_context = flow.global_attention(global_pooled_image)
+                global_pooled_image = flow_model.global_pooler(scores)
+                global_context = flow_model.global_attention(global_pooled_image)
                 # Concatenate global context to local context
                 context_vector = torch.cat([context_vector, global_context], dim=1)
 
-            z, ldj = flow.flow(
+            z, ldj = flow_model.flow(
                 patch_feature,
                 c=[context_vector],
             )
 
             opt.zero_grad(set_to_none=True)
-            loss = flow.nll(z, ldj)
+            loss = flow_model.nll(z, ldj)
             loss.backward()
 
-            opt.step()
-            local_loss += loss.item()
+            patch_feature = patch_feature.cpu()
+            context_vector = context_vector.cpu()
 
         return {"train_loss": local_loss / n_patches}
