@@ -6,6 +6,7 @@ import torch
 
 from sade.models import registry
 
+
 @pytest.fixture
 def test_config():
     config = ml_collections.ConfigDict()
@@ -87,6 +88,7 @@ def test_config():
 
     return config
 
+
 def test_model_initialization(test_config):
     test_config.model.blocks_down = (1, 2)
     test_config.model.blocks_up = (1,)
@@ -126,14 +128,19 @@ def test_mixed_precision(test_config):
     else:
         assert score.dtype == torch.float16
 
+
 def test_msma_score_fn(test_config):
     test_config.data.image_size = (16, 8, 16)
     test_config.msma.n_timesteps = S = 10
 
     score_model = registry.create_model(test_config)
-    msma_score_fn = registry.get_msma_score_fn(test_config, score_model, return_norm=False, denoise=False)
-    msma_score_norm_fn = registry.get_msma_score_fn(test_config, score_model, return_norm=True, denoise=False)
-    
+    msma_score_fn = registry.get_msma_score_fn(
+        test_config, score_model, return_norm=False, denoise=False
+    )
+    msma_score_norm_fn = registry.get_msma_score_fn(
+        test_config, score_model, return_norm=True, denoise=False
+    )
+
     N, C, H, W, D = 3, test_config.data.num_channels, *test_config.data.image_size
     x = torch.ones(N, C, H, W, D)
 
@@ -141,12 +148,12 @@ def test_msma_score_fn(test_config):
         score = msma_score_fn(x)
         score_norm = msma_score_norm_fn(x)
 
-
     assert not torch.isnan(score).any()
     assert score.shape == (N, S, H, W, D)
 
     assert not torch.isnan(score_norm).any()
     assert score_norm.shape == (N, S)
+
 
 def test_flow_model_output_shape(test_config):
     test_config.data.image_size = (16, 8, 16)
@@ -161,11 +168,11 @@ def test_flow_model_output_shape(test_config):
 
     assert not torch.isnan(z).any()
     assert not torch.isnan(jac).any()
-    assert z.shape == (H*W*D, N, C)
-    assert jac.shape == (H*W*D, N)
+    assert z.shape == (H * W * D, N, C)
+    assert jac.shape == (H * W * D, N)
 
     with torch.no_grad():
         log_probs = flow_model.log_density(x)
 
     assert not torch.isnan(log_probs).any()
-    assert log_probs.shape == (N,H,W,D)
+    assert log_probs.shape == (N, H, W, D)

@@ -1,4 +1,3 @@
-
 """Training NCSN++ on Brains with VE SDE.
    Keeping it consistent with CelebaHQ config from Song
 """
@@ -15,7 +14,9 @@ def get_config():
     training.reduce_mean = True
     training.batch_size = 8
     training.n_iters = 1500001
-    training.pretrain_dir = "/ASD/ahsan_projects/braintypicality/workdir/cuda_opt/learnable/checkpoints-meta/"
+    training.pretrain_dir = (
+        "/ASD/ahsan_projects/braintypicality/workdir/cuda_opt/learnable/checkpoints-meta/"
+    )
 
     data = config.data
     data.image_size = (96, 112, 80)
