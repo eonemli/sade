@@ -114,15 +114,17 @@ def create_sde(config):
     logging.info("SDE created")
     return sde
 
+
 def create_flow(config):
     C = config.msma.n_timesteps
-    H,W,D = config.data.image_size
-    input_size = (C,H,W,D)
+    H, W, D = config.data.image_size
+    input_size = (C, H, W, D)
 
     flow_model = PatchFlow(config, input_size)
 
     logging.info("Flow created")
     return flow_model
+
 
 def get_model_fn(model, train=False, amp=False):
     """Create a function to give the output of the score-based model.
@@ -207,26 +209,16 @@ def denoise_update(x, eps=1e-2):
     return x
 
 
-def build_score_norm_fn(config, score_model, return_norm=True, denoise=False):
+def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
     """Build a function to compute the norm of the score function."""
 
     # Setup SDEs
-    if config.training.sde.lower() == "vesde":
-        sde = sde_lib.VESDE(
-            sigma_min=config.model.sigma_min,
-            sigma_max=config.model.sigma_max,
-            N=config.model.num_scales,
-        )
-    else:
-        raise NotImplementedError(
-            f"SDE {config.training.sde} has not been tested with MSMA."
-        )
+    sde = create_sde(config)
 
     score_fn = get_score_fn(
         sde,
         score_model,
         train=False,
-        continuous=config.training.continuous,
         amp=config.training.use_fp16,
     )
 
@@ -238,7 +230,7 @@ def build_score_norm_fn(config, score_model, return_norm=True, denoise=False):
     if schedule == "linear":
         logging.info("Using linearly spaced sigmas.")
         msma_sigmas = torch.linspace(
-            max(1e-1, sde.sigma_min),
+            sde.sigma_min,
             sde.sigma_max,
             config.msma.n_timesteps,
             device=config.device,
@@ -248,7 +240,7 @@ def build_score_norm_fn(config, score_model, return_norm=True, denoise=False):
         logging.info("Using geometrically spaced sigmas.")
         msma_sigmas = torch.exp(
             torch.linspace(
-                np.log(max(1e-1, sde.sigma_min)),
+                np.log(sde.sigma_min),
                 np.log(sde.sigma_max),
                 config.msma.n_timesteps,
                 device=config.device,

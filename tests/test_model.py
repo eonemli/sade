@@ -126,6 +126,28 @@ def test_mixed_precision(test_config):
     else:
         assert score.dtype == torch.float16
 
+def test_msma_score_fn(test_config):
+    test_config.data.image_size = (16, 8, 16)
+    test_config.msma.n_timesteps = S = 10
+
+    score_model = registry.create_model(test_config)
+    msma_score_fn = registry.get_msma_score_fn(test_config, score_model, return_norm=False, denoise=False)
+    msma_score_norm_fn = registry.get_msma_score_fn(test_config, score_model, return_norm=True, denoise=False)
+    
+    N, C, H, W, D = 3, test_config.data.num_channels, *test_config.data.image_size
+    x = torch.ones(N, C, H, W, D)
+
+    with torch.no_grad():
+        score = msma_score_fn(x)
+        score_norm = msma_score_norm_fn(x)
+
+
+    assert not torch.isnan(score).any()
+    assert score.shape == (N, S, H, W, D)
+
+    assert not torch.isnan(score_norm).any()
+    assert score_norm.shape == (N, S)
+
 def test_flow_model_output_shape(test_config):
     test_config.data.image_size = (16, 8, 16)
 
