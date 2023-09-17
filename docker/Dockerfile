@@ -18,10 +18,6 @@ ENV PATH="${PATH}:/home/${USER}/.local/bin"
 RUN python -m pip install -U pip
 COPY repo_requirements.txt requirements.txt
 RUN python -m pip install -r requirements.txt
-# RUN python -m pip install -U jupyterlab jupyterlab_widgets ipywidgets
-# ENTRYPOINT ["jupyter", "lab", "--port=8888", "--notebook-dir=/", "--no-browser", "--ip=0.0.0.0"]
-
-# RUN apt install -y htop nodejs
 
 # Add zsh ricing
 USER root
