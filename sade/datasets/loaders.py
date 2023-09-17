@@ -63,6 +63,9 @@ def get_dataloaders(
             dirname = f"slicer_lesions/{ood_dataset_name}/{dataset_name}"
             ood_dir_path = os.path.abspath(f"{data_dir_path}/..")
             ood_dir_path = f"{ood_dir_path}/{dirname}"
+            
+            assert os.path.exists(ood_dir_path), f"{ood_dir_path} does not exist"
+
             # Getting lesion samples
             _, _, test_file_list = get_image_files_list(
                 ood_dataset_name, ood_dir_path, splits_dir

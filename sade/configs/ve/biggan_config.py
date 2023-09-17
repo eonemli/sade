@@ -1,7 +1,7 @@
 """Training NCSN++ on Brains with VE SDE.
    Keeping it consistent with CelebaHQ config from Song
 """
-from configs.default_brain_configs import get_default_configs
+from sade.configs.default_brain_configs import get_default_configs
 
 
 def get_config():
@@ -25,7 +25,7 @@ def get_config():
     data.cache_rate = 0.0
     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
     data.splits_dir = "/codespace/sade/sade/datasets/brains/"
-    data.ood_ds = "lesion"
+    data.ood_ds = "lesion_load_20"
 
     evaluate = config.eval
     evaluate.sample_size = 8
