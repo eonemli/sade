@@ -6,7 +6,7 @@ import numpy as np
 import torch
 
 
-from models.ema import ExponentialMovingAverage
+from sade.models.ema import ExponentialMovingAverage
 
 
 def restore_checkpoint(ckpt_dir, state, device):
@@ -105,10 +105,48 @@ def from_flattened_numpy(x, shape):
 
 def get_flow_rundir(config, workdir):
     hparams = f"psz{config.flow.local_patch_config.kernel_size}"
-    hparams += f"globalpsz{config.flow.global_patch_config.kernel_size}"
+    hparams += f"-globalpsz{config.flow.global_patch_config.kernel_size}"
+    # haparams += f"-nb{config.flow.num_blocks}"
     hparams += (
         f"-nb{config.flow.num_blocks}-lr{config.flow.lr}-bs{config.training.batch_size}"
     )
     hparams += f"-np{config.flow.patches_per_train_step}-kimg{config.flow.training_kimg}"
     rundir = os.path.join(workdir, "flow", hparams)
     return rundir
+
+def segmentation_metrics(reference_ccp, segmentation_ccp):
+    FP = 0
+    TP = 0
+    FN = 0
+
+    GT = len(np.unique(reference_ccp.ravel())) - 1
+    S = len(np.unique(segmentation_ccp.ravel())) - 1
+
+    # Using reference components
+    for i in range(1, GT + 1):
+        lesion_comp_mask = reference_ccp == i
+        seg_overlap = segmentation_ccp[lesion_comp_mask]
+        if np.unique(seg_overlap).sum() > 0:
+            TP += 1
+        else:
+            # No matching segementation component
+            FN += 1
+
+    # Iterating over segemntation components
+    for i in range(1, S + 1):
+        lesion_comp_mask = segmentation_ccp == i
+        seg_overlap = reference_ccp[lesion_comp_mask]
+
+        # If no matching reference component
+        if np.unique(seg_overlap).sum() == 0:
+            FP += 1
+
+    metrics = {
+        "TP": TP,
+        "FP": FP,
+        "FN": FN,
+        "ground_truth_components": GT,
+        "segmentation_components": S,
+    }
+
+    return metrics
