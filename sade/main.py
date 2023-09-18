@@ -10,13 +10,15 @@ import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
 from run.train import trainer
-from run.flows import flow_trainer
+from run.flows import flow_evaluator, flow_trainer
 
 warnings.filterwarnings("ignore")
 
 FLAGS = flags.FLAGS
 
-config_flags.DEFINE_config_file("config", None, "Training configuration.", lock_config=True)
+config_flags.DEFINE_config_file(
+    "config", None, "Training configuration.", lock_config=True
+)
 flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
@@ -24,7 +26,9 @@ flags.DEFINE_enum(
     ["train", "eval", "score", "sweep", "flow-train", "flow-eval"],
     "Running mode: train or eval",
 )
-flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
+flags.DEFINE_string(
+    "eval_folder", "eval", "The folder name for storing evaluation results"
+)
 flags.DEFINE_string(
     "sweep_id", None, "Optional ID for a sweep controller if running a sweep."
 )
@@ -40,7 +44,7 @@ def main(argv):
         torch.backends.cudnn.benchmark = True
         torch.backends.cudnn.allow_tf32 = True
 
-    elif FLAGS.mode == "train":
+    if FLAGS.mode == "train":
         # Create the working directory
         os.makedirs(FLAGS.workdir, exist_ok=True)
 
@@ -89,6 +93,8 @@ def main(argv):
 
             # Run the training pipeline
             flow_trainer(config, FLAGS.workdir)
+    elif FLAGS.mode == "flow-eval":
+        flow_evaluator(FLAGS.config, FLAGS.workdir)
     else:
         raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 

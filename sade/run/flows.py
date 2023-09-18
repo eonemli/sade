@@ -44,7 +44,7 @@ def flow_trainer(config, workdir):
     # Initialize flow model
     flownet = registry.create_flow(config)
 
-    summary(flownet, depth=1, verbose=2)
+    summary(flownet, depth=0, verbose=2)
 
     # Build data iterators
     dataloaders, _ = get_dataloaders(
@@ -59,13 +59,10 @@ def flow_trainer(config, workdir):
     train_iter = iter(train_dl)
     eval_iter = iter(eval_dl)
 
-    losses = []
-    batch_sz = config.training.batch_size
-    total_iters = 10  # kimg * 1000 // batch_sz + 1
-    progbar = tqdm(range(total_iters))
 
     run_dir = get_flow_rundir(config, workdir)
     os.makedirs(run_dir, exist_ok=True)
+    logging.info(f"Saving checkpoints to {run_dir}")
 
     flow_checkpoint_path = f"{run_dir}/checkpoint.pth"
     flow_checkpoint_meta_path = f"{run_dir}/checkpoint-meta.pth"
@@ -103,6 +100,10 @@ def flow_trainer(config, workdir):
         n_patches=config.flow.patches_per_train_step,
     )
 
+    losses = []
+    batch_sz = config.training.batch_size
+    total_iters = 10  # kimg * 1000 // batch_sz + 1
+    progbar = tqdm(range(total_iters))
     niter = 0
     imgcount = 0
     best_val_loss = np.inf
@@ -165,7 +166,6 @@ def flow_trainer(config, workdir):
     if val_loss < best_val_loss:
         torch.save(
             {
-                "epoch": -1,
                 "kimg": niter,
                 "model_state_dict": flownet.state_dict(),
                 "optimizer_state_dict": opt.state_dict(),
@@ -180,3 +180,83 @@ def flow_trainer(config, workdir):
         writer.close()
 
     return losses
+
+
+def flow_evaluator(config, workdir):
+    # Initialize score model
+    score_model = registry.create_model(config, log_grads=False)
+    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
+    state = dict(model=score_model, ema=ema, step=0)
+
+    # Get the score model checkpoint from pretrained run
+    checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+    # latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
+    # state = restore_checkpoint(latest_checkpoint_path, state, config.device)
+    state = restore_pretrained_weights(checkpoint_paths, state, config.device)
+    score_model.eval().requires_grad_(False)
+    scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
+
+    # Initialize flow model
+    flownet = registry.create_flow(config).eval().requires_grad_(False)
+
+    flow_path = get_flow_rundir(config, workdir)
+    ckpt_path = f"{flow_path}/checkpoint.pth"
+    if not os.path.exists(ckpt_path):
+        ckpt_path = f"{flow_path}/checkpoint-meta.pth"
+    if not os.path.exists(ckpt_path):
+        raise FileNotFoundError(
+            f"Could not find checkpoint or checkpoint-meta at {ckpt_path}"
+        )
+    else:
+        logging.info(f"Found checkpoint at {ckpt_path}")
+
+    state_dict = torch.load(ckpt_path, map_location=torch.device("cpu"))
+    _ = state_dict["model_state_dict"].pop("position_encoder.cached_penc", None)
+    flownet.load_state_dict(state_dict["model_state_dict"], strict=True)
+    logging.info(
+        f"Loaded flow model at iter= {state_dict['kimg']}, val_loss= {state_dict['val_loss']}"
+    )
+
+    # Load datasets
+    # Build data iterators
+    dataloaders, _ = get_dataloaders(
+        config,
+        evaluation=True,
+        ood_eval=True,
+        num_workers=2,
+        infinite_sampler=False,
+    )
+
+    _, inlier_dl, ood_dl = dataloaders
+
+    # Get negative log-likelihoods
+
+    x_inlier_nlls = []
+    for x in tqdm(inlier_dl):
+        x = x["image"].to(config.device)
+        h = scorer(x)
+        x.to("cpu")
+        z = -flownet.log_density(h).cpu()
+        h.to("cpu")
+        del h
+        x_inlier_nlls.append(z)
+
+    x_ood_nlls = []
+    for x in tqdm(ood_dl):
+        x = x["image"].to(config.device)
+        h = scorer(x)
+        x.to("cpu")
+        z = -flownet.log_density(h).cpu()
+        h.to("cpu")
+        del h
+        x_ood_nlls.append(z)
+
+    x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
+    x_ood_nlls = torch.cat(x_ood_nlls).numpy()
+
+    np.savez_compressed(
+        f"{flow_path}/anomaly_scores.npz",
+        **{"inliers": x_inlier_nlls, "lesions": x_ood_nlls},
+    )
+
+    return
