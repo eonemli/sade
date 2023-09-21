@@ -63,7 +63,7 @@ def get_dataloaders(
             dirname = f"slicer_lesions/{ood_dataset_name}/{dataset_name}"
             ood_dir_path = os.path.abspath(f"{data_dir_path}/..")
             ood_dir_path = f"{ood_dir_path}/{dirname}"
-            
+            print(f"Loading ood samples from {ood_dir_path}")
             assert os.path.exists(ood_dir_path), f"{ood_dir_path} does not exist"
 
             # Getting lesion samples
@@ -82,8 +82,8 @@ def get_dataloaders(
                 dataset_name, data_dir_path, splits_dir
             )
 
-        # Inlier samples
-        _, val_file_list, _ = get_image_files_list(dataset_name, data_dir_path, splits_dir)
+        # Inlier samples will be the test set of the main dataset
+        _, _, val_file_list = get_image_files_list(dataset_name, data_dir_path, splits_dir)
     elif evaluation:
         _, val_file_list, test_file_list = get_image_files_list(
             dataset_name, data_dir_path, splits_dir

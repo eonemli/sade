@@ -56,4 +56,14 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
     else:
         NotImplementedError
 
+    # Sort the file list by image name
+    if train_file_list is not None:
+        train_file_list = sorted(train_file_list, key=lambda x: x["image"])
+    
+    if val_file_list is not None:
+        val_file_list = sorted(val_file_list, key=lambda x: x["image"])
+
+    if test_file_list is not None:
+        test_file_list = sorted(test_file_list, key=lambda x: x["image"])
+    
     return train_file_list, val_file_list, test_file_list
