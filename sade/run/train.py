@@ -214,7 +214,7 @@ def trainer(config, workdir):
             sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
             logging.info("step: %d, done!" % (step))
 
-            with os.GFile(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
+            with open(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
                 np.save(fout, sample)
 
             fname = os.path.join(this_sample_dir, "sample.png")

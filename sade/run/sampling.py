@@ -9,7 +9,7 @@ import abc
 from models.registry import get_score_fn
 from .utils import from_flattened_numpy, to_flattened_numpy
 from scipy import integrate
-import sde_lib
+import sade.sde_lib as sde_lib
 
 _CORRECTORS = {}
 _PREDICTORS = {}
