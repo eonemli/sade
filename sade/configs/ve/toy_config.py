@@ -12,11 +12,11 @@ def get_config():
     training.likelihood_weighting = False
     training.reduce_mean = True
     training.batch_size = 4
-    training.n_iters = 10
+    training.n_iters = 20
     training.log_freq = 2
     training.eval_freq = 5
-    training.snapshot_freq_for_preemption = 50
-    training.sampling_freq = 50
+    training.snapshot_freq_for_preemption = 10
+    training.sampling_freq = 10
     training.load_pretrain = False
     training.pretrain_dir = "workdir/test/pretrain/"
 

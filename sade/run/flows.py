@@ -59,7 +59,6 @@ def flow_trainer(config, workdir):
     train_iter = iter(train_dl)
     eval_iter = iter(eval_dl)
 
-
     run_dir = get_flow_rundir(config, workdir)
     os.makedirs(run_dir, exist_ok=True)
     logging.info(f"Saving checkpoints to {run_dir}")
@@ -189,10 +188,12 @@ def flow_evaluator(config, workdir):
     state = dict(model=score_model, ema=ema, step=0)
 
     # Get the score model checkpoint from pretrained run
-    checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-    # latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    # state = restore_checkpoint(latest_checkpoint_path, state, config.device)
-    state = restore_pretrained_weights(checkpoint_paths, state, config.device)
+    # checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+    checkpoint_dir = os.path.join(config.training.pretrain_dir, "..", "checkpoints")
+    checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint_*.pth"))
+    latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
+    state = restore_checkpoint(latest_checkpoint_path, state, config.device)
+    # state = restore_pretrained_weights(checkpoint_paths, state, config.device)
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
 
@@ -240,23 +241,27 @@ def flow_evaluator(config, workdir):
         h.to("cpu")
         del h
         x_inlier_nlls.append(z)
+        break
 
+    x_ood_samples = []
     x_ood_nlls = []
-    for x in tqdm(ood_dl):
-        x = x["image"].to(config.device)
+    for x_img_dict in tqdm(ood_dl):
+        x = x_img_dict["image"].to(config.device)
         h = scorer(x)
-        x.to("cpu")
+        x = x.to("cpu")
         z = -flownet.log_density(h).cpu()
-        h.to("cpu")
+        h = h.to("cpu")
         del h
         x_ood_nlls.append(z)
+
 
     x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
 
-    np.savez_compressed(
-        f"{flow_path}/anomaly_scores.npz",
-        **{"inliers": x_inlier_nlls, "lesions": x_ood_nlls},
-    )
 
+    np.savez_compressed(
+        f"{flow_path}/{config.data.dataset.lower()}_{config.data.ood_ds.lower()}_scores.npz",
+        **{"inliers": x_inlier_nlls, "ood": x_ood_nlls},
+    )
+    
     return
