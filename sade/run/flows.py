@@ -93,9 +93,16 @@ def flow_trainer(config, workdir):
     # Defining optimization step
     opt = torch.optim.AdamW(teacher_flow_model.parameters(), lr=lr, weight_decay=1e-5)
     flow_train_step = functools.partial(
-        PatchFlow.stochastic_train_step,
+        PatchFlow.stochastic_step,
+        train=True,
         flow_model=teacher_flow_model,
         opt=opt,
+        n_patches=config.flow.patches_per_train_step,
+    )
+    flow_eval_step = functools.partial(
+        PatchFlow.stochastic_step,
+        train=False,
+        flow_model=teacher_flow_model,
         n_patches=config.flow.patches_per_train_step,
     )
 
@@ -107,12 +114,13 @@ def flow_trainer(config, workdir):
     imgcount = 0
     best_val_loss = np.inf
     checkpoint_interval = 10
+    loss_dict = {}
 
     for niter in progbar:
         x_batch = next(train_iter)["image"].to(device)
         scores = scorer(x_batch)
 
-        loss_dict = flow_train_step(scores, x_batch)
+        loss_dict["train_loss"] = flow_train_step(scores, x_batch)
         imgcount += x_batch.shape[0]
 
         # Ramp up EMA beta
@@ -126,25 +134,27 @@ def flow_trainer(config, workdir):
         for p_ema, p_net in zip(flownet.parameters(), teacher_flow_model.parameters()):
             p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
 
-        if log_tensorboard:
-            for loss_type in loss_dict:
-                writer.add_scalar(f"train_loss/{loss_type}", loss_dict[loss_type], niter)
-
         if niter % log_interval == 0:
             torch.cuda.empty_cache()
             flownet.eval()
 
             with torch.no_grad():
-                val_loss = 0.0
                 x = next(eval_iter)["image"].to(device)
                 x = scorer(x)
-                z, log_jac_det = flownet(x)
-                val_loss = flownet.nll(z, log_jac_det).item()
+                val_loss = flow_eval_step(scores, x_batch)
+                loss_dict["val_loss"] = val_loss
+                # z, log_jac_det = flownet(x)
+                # val_loss = flownet.nll(z, log_jac_det).item()
 
             progbar.set_description(f"Val Loss: {val_loss:.4f}")
             if log_tensorboard:
                 writer.add_scalar("val_loss", val_loss, niter)
             losses.append(val_loss)
+
+
+        if log_tensorboard:
+            for loss_type in loss_dict:
+                writer.add_scalar(f"loss/{loss_type}", loss_dict[loss_type], niter)
 
         progbar.set_postfix(batch=f"{imgcount}/{kimg}K")
 
@@ -254,14 +264,12 @@ def flow_evaluator(config, workdir):
         del h
         x_ood_nlls.append(z)
 
-
     x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
-
 
     np.savez_compressed(
         f"{flow_path}/{config.data.dataset.lower()}_{config.data.ood_ds.lower()}_scores.npz",
         **{"inliers": x_inlier_nlls, "ood": x_ood_nlls},
     )
-    
+
     return

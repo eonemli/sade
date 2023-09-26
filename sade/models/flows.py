@@ -106,7 +106,7 @@ class PatchFlow(torch.nn.Module):
             )
             # Spatial resolution of the global context patches
             _, c, h, w, d = self.global_pooler(torch.empty(1, *input_size)).shape
-            logging.info("Global Context Shape: ", (c, h, w))
+            logging.info(f"Global Context Shape: {(c, h, w)}")
             self.global_attention = FlowAttentionBlock(
                 input_size=(c, h, w, d),
                 embed_dim=self.global_embedding_size,
@@ -223,6 +223,8 @@ class PatchFlow(torch.nn.Module):
             jacs.append(ldj)
 
             ctx = ctx.cpu()
+            gc = gc.cpu()
+            p = p.cpu()
 
         return zs, jacs
 
@@ -240,9 +242,46 @@ class PatchFlow(torch.nn.Module):
         return logpx
 
     @staticmethod
-    def stochastic_train_step(scores, x_batch, flow_model, opt, n_patches=1):
-        flow_model.train()
+    def stochastic_step(scores, x_batch, flow_model, opt=None, train=False, n_patches=1):
+        
+        if train:
+            flow_model.train()
+        else:
+            flow_model.eval()
 
+        patches, context = PatchFlow.get_random_patches(
+            scores, x_batch, flow_model, n_patches
+        )
+
+        local_loss = 0.0
+        for patch_feature, context_vector in zip(patches, context):
+            patch_feature = patch_feature.to(flow_model.device)
+            context_vector = context_vector.to(flow_model.device)
+
+            if flow_model.use_global_context:
+                # Need separate loss for each patch
+                global_pooled_image = flow_model.global_pooler(scores)
+                global_context = flow_model.global_attention(global_pooled_image)
+                # Concatenate global context to local context
+                context_vector = torch.cat([context_vector, global_context], dim=1)
+
+            z, ldj = flow_model.flow(
+                patch_feature,
+                c=[context_vector],
+            )
+
+            if train:
+                opt.zero_grad(set_to_none=True)
+                loss = flow_model.nll(z, ldj)
+                loss.backward()
+
+            patch_feature = patch_feature.cpu()
+            context_vector = context_vector.cpu()
+
+        return local_loss / n_patches
+
+    @staticmethod
+    def get_random_patches(scores, x_batch, flow_model, n_patches):
         h = flow_model.local_pooler(scores).cpu()
         flow_model.position_encoder = flow_model.position_encoder.cpu()
         local_patches = rearrange(h, "b c h w d -> (h w d) b c")
@@ -262,32 +301,4 @@ class PatchFlow(torch.nn.Module):
         rand_idx = masked_idxs[shuffled_idx]
         rand_idx = rand_idx[:n_patches]
 
-        local_loss = 0.0
-        for idx in rand_idx:
-            patch_feature, context_vector = (
-                local_patches[idx],
-                context[idx],
-            )
-            patch_feature = patch_feature.to(flow_model.device)
-            context_vector = context_vector.to(flow_model.device)
-
-            if flow_model.use_global_context:
-                # Need separate loss for each patch
-                global_pooled_image = flow_model.global_pooler(scores)
-                global_context = flow_model.global_attention(global_pooled_image)
-                # Concatenate global context to local context
-                context_vector = torch.cat([context_vector, global_context], dim=1)
-
-            z, ldj = flow_model.flow(
-                patch_feature,
-                c=[context_vector],
-            )
-
-            opt.zero_grad(set_to_none=True)
-            loss = flow_model.nll(z, ldj)
-            loss.backward()
-
-            patch_feature = patch_feature.cpu()
-            context_vector = context_vector.cpu()
-
-        return {"train_loss": local_loss / n_patches}
+        return local_patches[rand_idx], context[rand_idx]
