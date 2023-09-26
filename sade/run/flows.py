@@ -143,12 +143,8 @@ def flow_trainer(config, workdir):
                 x = scorer(x)
                 val_loss = flow_eval_step(scores, x_batch)
                 loss_dict["val_loss"] = val_loss
-                # z, log_jac_det = flownet(x)
-                # val_loss = flownet.nll(z, log_jac_det).item()
 
             progbar.set_description(f"Val Loss: {val_loss:.4f}")
-            if log_tensorboard:
-                writer.add_scalar("val_loss", val_loss, niter)
             losses.append(val_loss)
 
 

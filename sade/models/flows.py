@@ -16,15 +16,16 @@ def gaussian_logprob(z, ldj):
     return _GCONST_ - 0.5 * torch.sum(z**2, dim=-1) + ldj
 
 
-def subnet_fc(c_in, c_out, ndim=256, act=nn.LeakyReLU(), input_norm=True):
+def subnet_fc(c_in, c_out, ndim=256, act=nn.LeakyReLU(), input_norm=False):
     return nn.Sequential(
         nn.LayerNorm(c_in) if input_norm else nn.Identity(),
         nn.Linear(c_in, ndim),
-        act,
         nn.LayerNorm(ndim),
-        nn.Linear(ndim, c_out),
         act,
-        # nn.Linear(ndim, c_out),
+        nn.Linear(ndim, ndim),
+        nn.LayerNorm(ndim),
+        act,
+        nn.Linear(ndim, c_out),
     )
 
 
@@ -143,7 +144,7 @@ class PatchFlow(torch.nn.Module):
                 Fm.AllInOneBlock,
                 cond=0,
                 cond_shape=(conditioning_dim,),
-                subnet_constructor=partial(subnet_fc, act=nn.GELU()),
+                subnet_constructor=partial(subnet_fc, act=nn.LeakyReLU(0.2)),
                 global_affine_type="SOFTPLUS",
                 permute_soft=True,
                 affine_clamping=1.9,
@@ -246,6 +247,7 @@ class PatchFlow(torch.nn.Module):
         
         if train:
             flow_model.train()
+            opt.zero_grad(set_to_none=True)
         else:
             flow_model.eval()
 
@@ -270,9 +272,10 @@ class PatchFlow(torch.nn.Module):
                 c=[context_vector],
             )
 
+            loss = flow_model.nll(z, ldj)
+            local_loss += loss.item()
+            
             if train:
-                opt.zero_grad(set_to_none=True)
-                loss = flow_model.nll(z, ldj)
                 loss.backward()
 
             patch_feature = patch_feature.cpu()
