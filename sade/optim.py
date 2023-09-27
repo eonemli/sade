@@ -198,11 +198,7 @@ def get_step_fn(
                 state["ema"].update(model.parameters())
             else:
                 with torch.no_grad():
-                    ema = state["ema"]
-                    ema.store(model.parameters())
-                    ema.copy_to(model.parameters())
                     loss = loss_fn(model, batch)
-                    ema.restore(model.parameters())
 
             return loss
 
