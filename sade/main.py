@@ -10,6 +10,8 @@ import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
 from run.train import trainer
+from run.finetune import finetuner
+from run.eval import evaluator
 from run.flows import flow_evaluator, flow_trainer
 
 warnings.filterwarnings("ignore")
@@ -23,7 +25,7 @@ flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
     None,
-    ["train", "eval", "score", "sweep", "flow-train", "flow-eval"],
+    ["train", "finetune", "eval", "score", "sweep", "flow-train", "flow-eval"],
     "Running mode: train or eval",
 )
 flags.DEFINE_string(
@@ -38,6 +40,22 @@ flags.DEFINE_bool("cuda_opt", False, "Whether to use cuda benchmark and tf32 mat
 flags.mark_flags_as_required(["workdir", "config", "mode", "project"])
 
 
+def setup_logger(workdir):
+    # Set logger so that it outputs to both console and file
+    # Make logging work for both disk and network Storage
+    gfile_stream = open(os.path.join(workdir, "stdout.txt"), "w")
+    file_handler = logging.StreamHandler(gfile_stream)
+    stdout_handler = logging.StreamHandler(sys.stdout)
+
+    # Override root handler
+    logging.root.handlers = []
+    logging.basicConfig(
+        level=logging.INFO,
+        format="%(levelname)s - %(filename)s - %(asctime)s - %(message)s",
+        handlers=[file_handler, stdout_handler],
+    )
+
+
 def main(argv):
     if FLAGS.cuda_opt:
         torch.set_float32_matmul_precision("high")
@@ -47,20 +65,7 @@ def main(argv):
     if FLAGS.mode == "train":
         # Create the working directory
         os.makedirs(FLAGS.workdir, exist_ok=True)
-
-        # Set logger so that it outputs to both console and file
-        # Make logging work for both disk and Google Cloud Storage
-        gfile_stream = open(os.path.join(FLAGS.workdir, "stdout.txt"), "w")
-        file_handler = logging.StreamHandler(gfile_stream)
-        stdout_handler = logging.StreamHandler(sys.stdout)
-
-        # Override root handler
-        logging.root.handlers = []
-        logging.basicConfig(
-            level=logging.INFO,
-            format="%(levelname)s - %(filename)s - %(asctime)s - %(message)s",
-            handlers=[file_handler, stdout_handler],
-        )
+        setup_logger(FLAGS.workdir)
 
         with wandb.init(
             project=FLAGS.project,
@@ -72,6 +77,23 @@ def main(argv):
 
             # Run the training pipeline
             trainer(config, FLAGS.workdir)
+    elif FLAGS.mode == "finetune":
+        # Create work directory for fine-tuning
+        workdir = os.path.join(FLAGS.workdir, "finetune")
+        setup_logger(workdir)
+
+        with wandb.init(
+            project=FLAGS.project,
+            config=FLAGS.config.to_dict(),
+            resume="allow",
+            sync_tensorboard=True,
+        ):
+            config = ml_collections.ConfigDict(wandb.config)
+
+        finetuner(FLAGS.config, workdir)
+
+    elif FLAGS.mode == "eval":
+        evaluator(FLAGS.config, FLAGS.workdir)
     elif FLAGS.mode == "flow-train":
         # Create the working directory
         os.makedirs(FLAGS.workdir, exist_ok=True)

@@ -22,7 +22,7 @@ import numpy as np
 makedirs = functools.partial(os.makedirs, exist_ok=True)
 
 
-def trainer(config, workdir):
+def finetuner(config, workdir):
     """Runs the training pipeline.
 
     Args:
@@ -39,36 +39,30 @@ def trainer(config, workdir):
     makedirs(tb_dir)
     writer = tensorboard.SummaryWriter(tb_dir)
 
-    # Initialize model.
-    score_model = registry.create_model(config, print_summary=True)
+    # Initialize main model.
+    fast_model = registry.create_model(config, print_summary=True)
     sde = registry.create_sde(config)
 
-    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
-
+    ema = ExponentialMovingAverage(fast_model.parameters(), decay=config.model.ema_rate)
+    
     state = dict(
-        model=score_model,
+        model=fast_model,
         ema=ema,
         step=0,
+        
     )
 
     # Initialize optimization state
-    optimize_fn = optimization_manager(state, config)
+    optimize_fn = optimization_manager(state, config.finetuning)
     assert "optimizer" in state, "Optimizer not found in state!"
 
     # Create checkpoints directory
     checkpoint_dir = os.path.join(workdir, "checkpoints")
-    # Intermediate checkpoints to resume training after pre-emption in cloud environments
-    checkpoint_meta_dir = os.path.join(workdir, "checkpoints-meta", "checkpoint.pth")
     makedirs(checkpoint_dir)
-    makedirs(os.path.dirname(checkpoint_meta_dir))
 
-    # # Resume training when intermediate checkpoints are detected
-    state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
-    initial_step = int(state["step"])
-
-    if initial_step == 0 and config.training.load_pretrain:
-        pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-        state = restore_pretrained_weights(pretrain_dir, state, config.device)
+    # Resume training from a checkpoint
+    pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+    state = restore_pretrained_weights(pretrain_dir, state, config.device)
 
     # Build data iterators
     dataloaders, datasets = get_dataloaders(
@@ -95,6 +89,7 @@ def trainer(config, workdir):
         likelihood_weighting=likelihood_weighting,
         use_fp16=config.training.use_fp16,
     )
+
     eval_step_fn = get_step_fn(
         sde,
         train=False,
@@ -110,41 +105,45 @@ def trainer(config, workdir):
         likelihood_weighting=likelihood_weighting,
         use_fp16=config.training.use_fp16,
     )
-
-    # Building sampling functions
-    if config.training.snapshot_sampling:
-        sampling_shape = (
+    
+    sampling_shape = (
             config.eval.sample_size,
             config.data.num_channels,
             *config.data.image_size,
         )
-        print(f"Sampling shape: {sampling_shape}")
-        sampling_fn = get_sampling_fn(config, sde, sampling_shape)
+    sampling_fn = get_sampling_fn(config, sde, sampling_shape)
 
-    num_train_steps = config.training.n_iters
-    logging.info("Starting training loop at step %d." % (initial_step,))
+    # These will be the 'global' model weights that will be updated slowly
+    slow_model = ExponentialMovingAverage(state['model'].parameters(), decay=0.999)
 
-    for step in range(initial_step, num_train_steps + 1):
-        batch = next(train_iter)["image"].to(config.device)
+    num_finetune_steps = config.finetuning.n_iters
+    num_fast_steps = config.finetuning.n_fast_steps
 
-        # Execute one training step
-        loss = train_step_fn(state, batch)
-        loss = loss.item()
+    logging.info(f"Starting finetuning loop for {num_finetune_steps:d} iters...")
 
+    for step in range(num_finetune_steps + 1):
+
+        # Execute fast weight updates
+        loss = 0.0
+        for _ in range(num_fast_steps):
+            batch = next(train_iter)["image"].to(config.device)
+            loss += train_step_fn(state, batch).item()
+        loss /= num_fast_steps
+
+        # Execute slow weight updates
+        slow_model.update(state['model'].parameters())
+        
+        # Update main model with slow weights
+        slow_model.copy_to(state['model'].parameters() )
+    
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e" % (step, loss))
             writer.add_scalar("training_loss", loss, step)
             wandb.log({"loss": loss}, step=step)
 
-        # Save a temporary checkpoint to resume training after pre-emption periodically
-        if step != 0 and step % config.training.snapshot_freq_for_preemption == 0:
-            save_checkpoint(checkpoint_meta_dir, state)
-
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
-            ema.store(score_model.parameters())
-            ema.copy_to(score_model.parameters())
-
+            
             eval_loss = 0.0
             sigma_losses = {}
 
@@ -161,8 +160,6 @@ def trainer(config, workdir):
                     n = torch.cat((n, norms))
                     sigma_losses[sigma] = (l, n)
 
-            ema.restore(score_model.parameters())
-
             logging.info("step: %d, eval_loss: %.5e" % (step, eval_loss))
             writer.add_scalar("eval_loss", eval_loss, step)
             wandb.log({"val_loss": eval_loss}, step=step)
@@ -177,49 +174,33 @@ def trainer(config, workdir):
                     step=step,
                 )
 
-            if config.optim.scheduler != "skip":
-                wandb.log(
-                    {
-                        "lr": state["optimizer"].param_groups[0]["lr"],
-                    },
-                    step=step,
-                )
-
         # Save a checkpoint periodically and generate samples if needed
-        if (
-            step != 0
-            and step % config.training.snapshot_freq == 0
-            or step == num_train_steps
-        ):
+        if (step % config.training.snapshot_freq == 0):
             # Save the checkpoint.
-            save_step = step // config.training.snapshot_freq
             save_checkpoint(
-                os.path.join(checkpoint_dir, f"checkpoint_{save_step}.pth"), state
+                os.path.join(checkpoint_dir, f"checkpoint-meta.pth"), state
             )
+    
+    # Save the final checkpoint.
+    save_step = step // config.training.snapshot_freq
+    save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint_{step}.pth"), state)
+    
+    # Generate and save samples
 
-        # Generate and save samples
-        if (
-            step != 0
-            and config.training.snapshot_sampling
-            and step % config.training.sampling_freq == 0
-        ):
-            logging.info("step: %d, generating samples..." % (step))
-            ema.store(score_model.parameters())
-            ema.copy_to(score_model.parameters())
-            sample, n = sampling_fn(score_model)
-            ema.restore(score_model.parameters())
-            this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
-            makedirs(this_sample_dir)
-            sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
-            logging.info("step: %d, done!" % (step))
+    logging.info("step: %d, generating samples..." % (step))
+    sample, n = sampling_fn(slow_model)
+    this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
+    makedirs(this_sample_dir)
+    sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
+    logging.info("step: %d, done!" % (step))
 
-            with open(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
-                np.save(fout, sample)
+    with open(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
+        np.save(fout, sample)
 
-            fname = os.path.join(this_sample_dir, "sample.png")
+    fname = os.path.join(this_sample_dir, "sample.png")
 
-            try:
-                plot_slices(sample, fname)
-                wandb.log({"sample": wandb.Image(fname)})
-            except:
-                logging.warning("Plotting failed!")
+    try:
+        plot_slices(sample, fname)
+        wandb.log({"sample": wandb.Image(fname)})
+    except:
+        logging.warning("Plotting failed!")

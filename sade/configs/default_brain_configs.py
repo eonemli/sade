@@ -117,10 +117,28 @@ def get_default_configs():
     optim.warmup = 5000
     optim.grad_clip = 1.0
 
+    # finetuning
+    config.finetuning = finetuning = ml_collections.ConfigDict()
+    finetuning.n_iters = 1000
+    finetuning.n_fast_steps = 10
+    finetuning.fp16 = False
+    finoptim = finetuning.optim = ml_collections.ConfigDict()
+    finoptim.lr = 1e-3
+    finoptim.weight_decay = 0.0
+    finoptim.optimizer = "Adam"
+    finoptim.scheduler = "skip"
+    finoptim.lr = 3e-4
+    finoptim.beta1 = 0.9
+    finoptim.eps = 1e-8
+    finoptim.warmup = 1
+    finoptim.grad_clip = 0
+
     config.seed = 42
     config.device = (
         torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     )
+    config.fp16 = False
+
 
     # Configuration for Hyperparam sweeps
     config.sweep = sweep = ml_collections.ConfigDict()

@@ -1,5 +1,6 @@
 # Repo-specific ignores
-workdir/
+*wandb/
+*workdir/
 *.txt
 
 # Byte-compiled / optimized / DLL files

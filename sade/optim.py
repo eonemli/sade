@@ -4,6 +4,7 @@ import numpy as np
 import torch
 import torch.optim as optim
 from sade.losses import get_sde_loss_fn
+from sade.models.registry import get_score_fn
 
 avail_optimizers = {
     "Adam": optim.Adam,
@@ -68,7 +69,7 @@ def optimization_manager(state_dict, config):
     assert "model" in state_dict, "state_dict must contain a model"
     optimizer = get_optimizer(config, state_dict["model"].parameters())
     scheduler = get_scheduler(config, optimizer)
-    grad_scaler = torch.cuda.amp.GradScaler() if config.training.use_fp16 else None
+    grad_scaler = torch.cuda.amp.GradScaler() if config.fp16 else None
 
     state_dict["optimizer"] = optimizer
     if scheduler is not None:
@@ -201,5 +202,75 @@ def get_step_fn(
                     loss = loss_fn(model, batch)
 
             return loss
+
+    return step_fn
+
+
+def get_diagnsotic_fn(
+    sde,
+    reduce_mean=False,
+    likelihood_weighting=False,
+    eps=1e-5,
+    steps=5,
+    use_fp16=False,
+):
+    reduce_op = (
+        torch.mean
+        if reduce_mean
+        else lambda *args, **kwargs: 0.5 * torch.sum(*args, **kwargs)
+    )
+
+    def sde_loss_fn(model, batch, t):
+        """Compute the per-sigma loss function.
+
+        Args:
+          model: A score model.
+          batch: A mini-batch of training data.
+
+        Returns:
+          loss: A scalar that represents the average loss value across the mini-batch.
+        """
+        score_fn = get_score_fn(sde, model, train=False, amp=use_fp16)
+        _t = torch.ones(batch.shape[0], device=batch.device) * t * (sde.T - eps) + eps
+
+        z = torch.randn_like(batch)
+        mean, std = sde.marginal_prob(batch, _t)
+        perturbed_data = mean + sde._unsqueeze(std) * z
+
+        score = score_fn(perturbed_data, _t)
+        score_norms = torch.linalg.norm(score.reshape((score.shape[0], -1)), dim=-1)
+        score_norms = score_norms * std
+
+        if not likelihood_weighting:
+            losses = torch.square(score * sde._unsqueeze(std) + z)
+            losses = reduce_op(losses.reshape(losses.shape[0], -1), dim=-1)
+        else:
+            g2 = sde.sde(torch.zeros_like(batch), _t)[1] ** 2
+            losses = torch.square(score + z / sde._unsqueeze(std))
+            losses = reduce_op(losses.reshape(losses.shape[0], -1), dim=-1) * g2
+
+        loss = torch.mean(losses)
+
+        return loss, score_norms
+
+    final_timepoint = 1.0
+    loss_fn = sde_loss_fn
+
+    def step_fn(state, batch):
+        model = state["model"]
+        with torch.no_grad():
+            # ema = state["ema"]
+            # ema.store(model.parameters())
+            # ema.copy_to(model.parameters())
+
+            losses = {}
+
+            for t in torch.linspace(0.0, final_timepoint, steps, dtype=torch.float32):
+                loss, norms = loss_fn(model, batch, t)
+                losses[f"{t:.3f}"] = (loss.item(), norms.cpu())
+
+            # ema.restore(model.parameters())
+
+        return losses
 
     return step_fn
