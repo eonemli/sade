@@ -182,13 +182,12 @@ def finetuner(config, workdir):
             )
     
     # Save the final checkpoint.
-    save_step = step // config.training.snapshot_freq
     save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint_{step}.pth"), state)
     
     # Generate and save samples
 
     logging.info("step: %d, generating samples..." % (step))
-    sample, n = sampling_fn(slow_model)
+    sample, n = sampling_fn(state["model"])
     this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
     makedirs(this_sample_dir)
     sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
