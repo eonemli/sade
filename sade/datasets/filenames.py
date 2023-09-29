@@ -34,7 +34,7 @@ def get_image_files_list(dataset_name, dataset_dir, splits_dir):
             filenames["inlier"] = [x.strip() for x in f.readlines()]
 
         test_file_list = [
-            {"image": os.path.join(dataset_dir, f"IBIS_{x}.nii.gz")}
+            {"image": os.path.join(dataset_dir, f"IBIS{x}.nii.gz")}
             for x in filenames["inlier"]
         ]
     elif dataset_name.lower() in ["ds-sa"]:

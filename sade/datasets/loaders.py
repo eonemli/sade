@@ -82,7 +82,7 @@ def get_dataloaders(
                 dataset_name, data_dir_path, splits_dir
             )
 
-        # Inlier samples will be the test set of the main dataset
+        # Inlier samples will be the val/test set of the main dataset
         _, _, val_file_list = get_image_files_list(dataset_name, data_dir_path, splits_dir)
     elif evaluation:
         _, val_file_list, test_file_list = get_image_files_list(
@@ -92,6 +92,9 @@ def get_dataloaders(
         train_file_list, val_file_list, test_file_list = get_image_files_list(
             dataset_name, data_dir_path, splits_dir
         )
+    
+    assert val_file_list is not None
+    assert test_file_list is not None
 
     train_ds = None
     if train_file_list is not None:

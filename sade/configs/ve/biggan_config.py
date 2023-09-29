@@ -30,6 +30,7 @@ def get_config():
     evaluate = config.eval
     evaluate.sample_size = 8
     evaluate.batch_size = 64
+    evaluate.checkpoint_num = 150
 
     # optimization
     optim = config.optim
