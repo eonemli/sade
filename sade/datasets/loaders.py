@@ -1,5 +1,7 @@
 """Return training and evaluation/test datasets from config files."""
 import functools
+import glob
+import logging
 import os
 import re
 
@@ -15,6 +17,80 @@ from monai.transforms import *
 from torch.utils.data import DataLoader, RandomSampler
 
 
+def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
+    file_path = os.path.join(splits_dir, f"{ dataset_name.lower()}_keys.txt")
+    assert os.path.exists(file_path), f"{file_path} does not exist"
+
+    strip = lambda x: x.strip()
+    if re.match(r"(abcd)", dataset_name):
+        strip = lambda x: x.strip().replace("_", "")
+
+    with open(file_path) as f:
+        image_filenames = [strip(x) for x in f.readlines()]
+
+    if re.match(r"lesion", dataset_name):
+        image_files_list = [
+            {"image": p, "label": p.replace(".nii.gz", "_label.nii.gz")}
+            for p in glob.glob(f"{dataset_dir}/*/*.nii.gz")
+            if "label" not in p  # very lazy, i know :)
+        ]
+
+    else:
+        image_files_list = [
+            {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in image_filenames
+        ]
+
+    image_files_list = sorted(image_files_list, key=lambda x: x["image"])
+
+    return image_files_list
+
+
+def get_datasets(config, training=False):
+    """Return training and evaluation/test datasets from config files."""
+
+    dataset_name = config.data.dataset
+    # Directory that holds the data samples
+    dataset_dir = config.data.dir_path
+    # Directory that holds files with train/test splits and other filenames
+    splits_dir = config.data.splits_dir
+
+    if training:
+        dataset_name = dataset_name.lower()
+        train_file_list = get_image_files_list(
+            f"{dataset_name}-train", dataset_dir, splits_dir
+        )
+        val_file_list = get_image_files_list(
+            f"{dataset_name}-val", dataset_dir, splits_dir
+        )
+        test_file_list = get_image_files_list(
+            f"{dataset_name}-test", dataset_dir, splits_dir
+        )
+    # An evaluation experiment
+    else:
+        experiment_dict = config.eval.experiment
+
+        train_dataset = experiment_dict["train"]
+        inlier_dataset = experiment_dict["inlier"]
+        ood_dataset = experiment_dict["ood"]
+
+        train_file_list = get_image_files_list(train_dataset, dataset_dir, splits_dir)
+        val_file_list = get_image_files_list(inlier_dataset, dataset_dir, splits_dir)
+
+        if re.match(r"lesion", ood_dataset):
+            dirname = f"slicer_lesions/{ood_dataset}/{dataset_name}"
+            ood_dir_path = os.path.abspath(f"{dataset_dir}/..")
+            ood_dir_path = f"{ood_dir_path}/{dirname}"
+            assert os.path.exists(ood_dir_path), f"{ood_dir_path} does not exist"
+            logging.info(f"Loading ood samples from {ood_dir_path}...")
+
+        # Tumor will be added as a transformation to the inliers
+        if re.match(r"tumor", ood_dataset):
+            ood_dataset = inlier_dataset
+
+        test_file_list = get_image_files_list(ood_dataset, dataset_dir, splits_dir)
+
+    return train_file_list, val_file_list, test_file_list
+
 def get_dataloaders(
     config,
     evaluation=False,
@@ -29,7 +105,7 @@ def get_dataloaders(
       evaluation: If `True`, only val_transform will be used
 
     Returns:
-      train_ds, eval_ds, dataset_builder.
+      dataloaders, datasets.
     """
     if infinite_sampler:
         inf_sampler = functools.partial(
@@ -37,64 +113,36 @@ def get_dataloaders(
         )
 
     # Sanity checks
-    assert re.match(r"(abcd|ibis)", config.data.dataset.lower())
-    assert re.match(r"(tumor|lesion|ds-sa)", config.data.ood_ds.lower())
+    # assert re.match(r"(abcd|ibis)", config.data.dataset.lower())
+    # assert re.match(r"(tumor|lesion|ds-sa)", config.data.ood_ds.lower())
 
-    # Directory that holds files with train/test splits and other filenames
-    splits_dir = config.data.splits_dir
-    # Directory that holds the data samples
-    data_dir_path = config.data.dir_path
     cache_rate = config.data.cache_rate
-    dataset_name = config.data.dataset
 
-    train_file_list = None
-    val_file_list = None
-    test_file_list = None
 
-    train_transform = get_train_transform(config)
-    val_transform = get_val_transform(config)
-    test_transform = get_val_transform(config)
-
-    if ood_eval:
-        # We will only return inlier and ood samples
-        train_file_list = None
-        ood_dataset_name = config.data.ood_ds.lower()
-        if "lesion" in ood_dataset_name:
-            dirname = f"slicer_lesions/{ood_dataset_name}/{dataset_name}"
-            ood_dir_path = os.path.abspath(f"{data_dir_path}/..")
-            ood_dir_path = f"{ood_dir_path}/{dirname}"
-            print(f"Loading ood samples from {ood_dir_path}")
-            assert os.path.exists(ood_dir_path), f"{ood_dir_path} does not exist"
-
-            # Getting lesion samples
-            _, _, test_file_list = get_image_files_list(
-                ood_dataset_name, ood_dir_path, splits_dir
-            )
-            # lesions will be loaded alongside label masks
-            test_transform = get_lesion_transform(config)
-        elif ood_dataset_name == "tumor":
-            _, _, test_file_list = get_image_files_list(
-                dataset_name, data_dir_path, splits_dir
-            )
-            test_transform = get_tumor_transform(config)
-        else:  # image-only ood dataset
-            _, _, test_file_list = get_image_files_list(
-                dataset_name, data_dir_path, splits_dir
-            )
-
-        # Inlier samples will be the val/test set of the main dataset
-        _, _, val_file_list = get_image_files_list(dataset_name, data_dir_path, splits_dir)
-    elif evaluation:
-        _, val_file_list, test_file_list = get_image_files_list(
-            dataset_name, data_dir_path, splits_dir
-        )
-    else:  # Training data
-        train_file_list, val_file_list, test_file_list = get_image_files_list(
-            dataset_name, data_dir_path, splits_dir
-        )
+    train_file_list, val_file_list, test_file_list = get_datasets(
+       config, training=not evaluation
+    )
     
-    assert val_file_list is not None
-    assert test_file_list is not None
+    assert train_file_list is not None and len(train_file_list) > 0
+    assert val_file_list is not None and len(val_file_list) > 0
+    assert test_file_list is not None and len(test_file_list) > 0
+
+    if evaluation:
+        train_transform = get_val_transform(config)
+        val_transform = get_val_transform(config)
+
+        ood_ds_name = config.eval.experiment.ood.lower()
+        if re.match(r"lesion",ood_ds_name):
+            test_transform = get_lesion_transform(config)
+        elif re.match(r"tumor", ood_ds_name):
+            test_transform = get_tumor_transform(config)
+        else:
+            test_transform = get_val_transform(config)
+    else:
+        train_transform = get_train_transform(config)
+        val_transform = get_val_transform(config)
+        test_transform = get_val_transform(config)
+
 
     train_ds = None
     if train_file_list is not None:
