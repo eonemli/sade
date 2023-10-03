@@ -44,6 +44,12 @@ def get_default_configs():
     evaluate.ood_eval = False
     evaluate.sample_size = 32
 
+    experiment = config.eval.experiment = ml_collections.ConfigDict()
+    experiment.id = "default"
+    experiment.train = "abcd-val" # The dataset used for training MSMA
+    experiment.inlier = "abcd-test"
+    experiment.ood = "tumor"
+
     # msma
     config.msma = msma = ml_collections.ConfigDict()
     msma.max_timestep = 1.0
@@ -57,7 +63,7 @@ def get_default_configs():
     # data
     config.data = data = ml_collections.ConfigDict()
     data.dataset = "ABCD"
-    data.ood_ds = "lesion"  # "IBIS"
+    # data.ood_ds = "lesion"  # "IBIS"
     data.image_size = (176, 208, 160)  # For generating images
     data.spacing_pix_dim = 1.0
     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
@@ -119,16 +125,16 @@ def get_default_configs():
 
     # finetuning
     config.finetuning = finetuning = ml_collections.ConfigDict()
-    finetuning.n_iters = 1000
+    finetuning.n_iters = 5000
     finetuning.n_fast_steps = 10
+    finetuning.outer_step_size = 0.01
     finetuning.fp16 = False
     finoptim = finetuning.optim = ml_collections.ConfigDict()
-    finoptim.lr = 1e-3
     finoptim.weight_decay = 0.0
     finoptim.optimizer = "Adam"
     finoptim.scheduler = "skip"
-    finoptim.lr = 3e-4
-    finoptim.beta1 = 0.9
+    finoptim.lr = 1e-3
+    finoptim.beta1 = 0.0
     finoptim.eps = 1e-8
     finoptim.warmup = 1
     finoptim.grad_clip = 0
