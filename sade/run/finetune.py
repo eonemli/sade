@@ -44,12 +44,11 @@ def finetuner(config, workdir):
     sde = registry.create_sde(config)
 
     ema = ExponentialMovingAverage(fast_model.parameters(), decay=config.model.ema_rate)
-    
+
     state = dict(
         model=fast_model,
         ema=ema,
         step=0,
-        
     )
 
     # Initialize optimization state
@@ -105,16 +104,18 @@ def finetuner(config, workdir):
         likelihood_weighting=likelihood_weighting,
         use_fp16=config.training.use_fp16,
     )
-    
+
     sampling_shape = (
-            config.eval.sample_size,
-            config.data.num_channels,
-            *config.data.image_size,
-        )
+        config.eval.sample_size,
+        config.data.num_channels,
+        *config.data.image_size,
+    )
     sampling_fn = get_sampling_fn(config, sde, sampling_shape)
 
     # These will be the 'global' model weights that will be updated slowly
-    slow_model = ExponentialMovingAverage(state['model'].parameters(), decay=0.999)
+    slow_model = ExponentialMovingAverage(
+        state['model'].parameters(), decay=1 - config.finetuning.outer_step_size
+    )
 
     num_finetune_steps = config.finetuning.n_iters
     num_fast_steps = config.finetuning.n_fast_steps
@@ -122,7 +123,6 @@ def finetuner(config, workdir):
     logging.info(f"Starting finetuning loop for {num_finetune_steps:d} iters...")
 
     for step in range(num_finetune_steps + 1):
-
         # Execute fast weight updates
         loss = 0.0
         for _ in range(num_fast_steps):
@@ -132,10 +132,10 @@ def finetuner(config, workdir):
 
         # Execute slow weight updates
         slow_model.update(state['model'].parameters())
-        
+
         # Update main model with slow weights
-        slow_model.copy_to(state['model'].parameters() )
-    
+        slow_model.copy_to(state['model'].parameters())
+
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e" % (step, loss))
             writer.add_scalar("training_loss", loss, step)
@@ -143,7 +143,6 @@ def finetuner(config, workdir):
 
         # Report the loss on an evaluation dataset periodically
         if step % config.training.eval_freq == 0:
-            
             eval_loss = 0.0
             sigma_losses = {}
 
@@ -175,15 +174,13 @@ def finetuner(config, workdir):
                 )
 
         # Save a checkpoint periodically and generate samples if needed
-        if (step % config.training.snapshot_freq == 0):
+        if step % config.training.snapshot_freq == 0:
             # Save the checkpoint.
-            save_checkpoint(
-                os.path.join(checkpoint_dir, f"checkpoint-meta.pth"), state
-            )
-    
+            save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint-meta.pth"), state)
+
     # Save the final checkpoint.
     save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint_{step}.pth"), state)
-    
+
     # Generate and save samples
 
     logging.info("step: %d, generating samples..." % (step))
