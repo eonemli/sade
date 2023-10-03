@@ -11,7 +11,6 @@ from optim import get_step_fn, optimization_manager, get_diagnsotic_fn
 from torch.utils import tensorboard
 
 from .utils import (
-    restore_checkpoint,
     restore_pretrained_weights,
     save_checkpoint,
     plot_slices,
@@ -43,7 +42,8 @@ def finetuner(config, workdir):
     fast_model = registry.create_model(config, print_summary=True)
     sde = registry.create_sde(config)
 
-    ema = ExponentialMovingAverage(fast_model.parameters(), decay=config.model.ema_rate)
+    # Always keep the latest updated weights
+    ema = ExponentialMovingAverage(fast_model.parameters(), decay=0)
 
     state = dict(
         model=fast_model,
@@ -135,6 +135,7 @@ def finetuner(config, workdir):
 
         # Update main model with slow weights
         slow_model.copy_to(state['model'].parameters())
+        state['ema'] = ExponentialMovingAverage(state['model'].parameters(), decay=0)
 
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e" % (step, loss))
