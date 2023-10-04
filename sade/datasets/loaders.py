@@ -5,6 +5,10 @@ import logging
 import os
 import re
 
+from monai.data import CacheDataset
+from monai.transforms import *
+from torch.utils.data import DataLoader, RandomSampler
+
 from sade.datasets.filenames import get_image_files_list
 from sade.datasets.transforms import (
     get_lesion_transform,
@@ -12,21 +16,9 @@ from sade.datasets.transforms import (
     get_tumor_transform,
     get_val_transform,
 )
-from monai.data import CacheDataset
-from monai.transforms import *
-from torch.utils.data import DataLoader, RandomSampler
 
 
 def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
-    file_path = os.path.join(splits_dir, f"{ dataset_name.lower()}_keys.txt")
-    assert os.path.exists(file_path), f"{file_path} does not exist"
-
-    strip = lambda x: x.strip()
-    if re.match(r"(abcd)", dataset_name):
-        strip = lambda x: x.strip().replace("_", "")
-
-    with open(file_path) as f:
-        image_filenames = [strip(x) for x in f.readlines()]
 
     if re.match(r"lesion", dataset_name):
         image_files_list = [
@@ -34,8 +26,17 @@ def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
             for p in glob.glob(f"{dataset_dir}/*/*.nii.gz")
             if "label" not in p  # very lazy, i know :)
         ]
-
     else:
+        file_path = os.path.join(splits_dir, f"{ dataset_name.lower()}_keys.txt")
+        assert os.path.exists(file_path), f"{file_path} does not exist"
+
+        strip = lambda x: x.strip()
+        if re.match(r"(abcd)", dataset_name):
+            strip = lambda x: x.strip().replace("_", "")
+
+        with open(file_path) as f:
+            image_filenames = [strip(x) for x in f.readlines()]
+
         image_files_list = [
             {"image": os.path.join(dataset_dir, f"{x}.nii.gz")} for x in image_filenames
         ]
@@ -59,9 +60,7 @@ def get_datasets(config, training=False):
         train_file_list = get_image_files_list(
             f"{dataset_name}-train", dataset_dir, splits_dir
         )
-        val_file_list = get_image_files_list(
-            f"{dataset_name}-val", dataset_dir, splits_dir
-        )
+        val_file_list = get_image_files_list(f"{dataset_name}-val", dataset_dir, splits_dir)
         test_file_list = get_image_files_list(
             f"{dataset_name}-test", dataset_dir, splits_dir
         )
@@ -77,11 +76,11 @@ def get_datasets(config, training=False):
         val_file_list = get_image_files_list(inlier_dataset, dataset_dir, splits_dir)
 
         if re.match(r"lesion", ood_dataset):
-            dirname = f"slicer_lesions/{ood_dataset}/{dataset_name}"
+            dirname = f"slicer_lesions/{ood_dataset}/{dataset_name.upper()}"
             ood_dir_path = os.path.abspath(f"{dataset_dir}/..")
-            ood_dir_path = f"{ood_dir_path}/{dirname}"
-            assert os.path.exists(ood_dir_path), f"{ood_dir_path} does not exist"
-            logging.info(f"Loading ood samples from {ood_dir_path}...")
+            dataset_dir = f"{ood_dir_path}/{dirname}"
+            assert os.path.exists(dataset_dir), f"{dataset_dir} does not exist"
+            logging.info(f"Loading ood samples from {dataset_dir}...")
 
         # Tumor will be added as a transformation to the inliers
         if re.match(r"tumor", ood_dataset):
@@ -90,6 +89,7 @@ def get_datasets(config, training=False):
         test_file_list = get_image_files_list(ood_dataset, dataset_dir, splits_dir)
 
     return train_file_list, val_file_list, test_file_list
+
 
 def get_dataloaders(
     config,
@@ -118,11 +118,10 @@ def get_dataloaders(
 
     cache_rate = config.data.cache_rate
 
-
     train_file_list, val_file_list, test_file_list = get_datasets(
-       config, training=not evaluation
+        config, training=not evaluation
     )
-    
+
     assert train_file_list is not None and len(train_file_list) > 0
     assert val_file_list is not None and len(val_file_list) > 0
     assert test_file_list is not None and len(test_file_list) > 0
@@ -132,7 +131,7 @@ def get_dataloaders(
         val_transform = get_val_transform(config)
 
         ood_ds_name = config.eval.experiment.ood.lower()
-        if re.match(r"lesion",ood_ds_name):
+        if re.match(r"lesion", ood_ds_name):
             test_transform = get_lesion_transform(config)
         elif re.match(r"tumor", ood_ds_name):
             test_transform = get_tumor_transform(config)
@@ -142,7 +141,6 @@ def get_dataloaders(
         train_transform = get_train_transform(config)
         val_transform = get_val_transform(config)
         test_transform = get_val_transform(config)
-
 
     train_ds = None
     if train_file_list is not None:
