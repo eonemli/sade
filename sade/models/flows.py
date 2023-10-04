@@ -277,6 +277,7 @@ class PatchFlow(torch.nn.Module):
             
             if train:
                 loss.backward()
+                opt.step()
 
             patch_feature = patch_feature.cpu()
             context_vector = context_vector.cpu()
