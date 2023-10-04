@@ -1,3 +1,4 @@
+import glob
 import logging
 import os
 import numpy as np
@@ -6,9 +7,10 @@ import torch
 from tqdm import tqdm
 from datasets.loaders import get_dataloaders
 import models.registry as registry
+from sade.models.ema import ExponentialMovingAverage
 from sade.ood_detection_helper import auxiliary_model_analysis
 
-from .utils import restore_pretrained_weights
+from .utils import restore_pretrained_weights, restore_checkpoint
 
 
 def evaluator(config, workdir):
@@ -20,24 +22,36 @@ def evaluator(config, workdir):
         contains checkpoint training will be resumed from the latest checkpoint.
     """
 
-   
     # Initialize model.
     score_model = registry.create_model(config, print_summary=True)
     sde = registry.create_sde(config)
 
     # Load checkpoint
-    state = dict(model=score_model, step=0)
+    state = dict(
+        model=score_model,
+        step=0,
+        ema=ExponentialMovingAverage(score_model.parameters(), decay=0),
+    )
     checkpoint_dir = os.path.join(workdir, "checkpoints")
-    if config.eval.checkpoint_num is not None:
+    if config.eval.checkpoint_num > -1:
         checkpoint_num = config.eval.checkpoint_num
-    checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{checkpoint_num}.pth")
-    state = restore_pretrained_weights(checkpoint_path, state, config.device)
+        checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{checkpoint_num}.pth")
+    else:
+        # Get the latest checkpoint
+        checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint*.pth"))
+        checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
+
+    # state = restore_pretrained_weights(checkpoint_path, state, config.device)
+    state = restore_checkpoint(checkpoint_path, state, config.device)
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
 
     # Create save directory
-    save_dir = os.path.join(workdir, "eval", f"ckpt_{checkpoint_num}")
-    experiment_name = "{config.data.dataset.lower()}_{config.data.ood_ds.lower()}"
+    checkpoint_step = state["step"]
+    save_dir = os.path.join(workdir, "eval", f"ckpt_{checkpoint_step}")
+    experiment = config.eval.experiment
+    experiment_name = f"{experiment.train}_{experiment.inlier}_{experiment.ood}"
+    # experiment_name += config.eval.experiment.id
     os.makedirs(save_dir, exist_ok=True)
 
     # Build data iterators
@@ -45,27 +59,13 @@ def evaluator(config, workdir):
     test_dataloaders, datasets = get_dataloaders(
         config,
         evaluation=True,
-        ood_eval=True,
         num_workers=4,
         infinite_sampler=False,
     )
 
-    _, inlier_dl, ood_dl = test_dataloaders
+    eval_dl, inlier_dl, ood_dl = test_dataloaders
 
-    #! Fixme: This should be part of the config
-    # Maybe make a ood_experiment config which specifies inlier and ood datasets
-    config.data.dataset = "ABCD"
-    dataloaders, datasets = get_dataloaders(
-        config,
-        evaluation=True,
-        ood_eval=False,
-        num_workers=4,
-        infinite_sampler=False,
-    )
-
-    _, eval_dl, _ = dataloaders
-
-    logging.info(f"Evaluating model at checkpoint {checkpoint_num:d}...")
+    logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
 
     # Run score norm evaluation
     x_eval_scores = []
