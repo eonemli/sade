@@ -4,8 +4,7 @@ import ml_collections
 import pytest
 import torch
 
-from sade.datasets.loaders import get_dataloaders
-from sade.datasets.filenames import get_image_files_list
+from sade.datasets.loaders import get_dataloaders, get_datasets
 
 
 @pytest.fixture
@@ -13,8 +12,7 @@ def test_config():
     config = ml_collections.ConfigDict()
     data = config.data = ml_collections.ConfigDict()
     data.cache_rate = 0
-    data.dataset = "ABCD"
-    data.ood_ds = "tumor"
+    data.dataset = "testing"
     data.image_size = (176, 208, 160)
     data.num_channels = 2
     data.spacing_pix_dim = 1.0
@@ -27,15 +25,18 @@ def test_config():
     config.eval = ml_collections.ConfigDict()
     config.eval.batch_size = 1
 
+    experiment = config.eval.experiment = ml_collections.ConfigDict()
+    experiment.train = "testing-train"  # The dataset used for training MSMA
+    experiment.inlier = "testing-val"
+    experiment.ood = "tumor"
+
     return config
 
 
 def test_dataset_image_lists(test_config):
     assert os.path.exists(test_config.data.dir_path)
 
-    train, val, test = get_image_files_list(
-        test_config.data.dataset, test_config.data.dir_path, test_config.data.splits_dir
-    )
+    train, val, test = get_datasets(test_config)
 
     assert train is not None
     assert val is not None
@@ -51,7 +52,6 @@ def test_dataset_shapes(test_config):
     _, datasets = get_dataloaders(
         test_config,
         evaluation=False,
-        ood_eval=False,
         num_workers=1,
     )
 
@@ -68,7 +68,6 @@ def test_data_loader_iter(test_config):
     dataloaders, _ = get_dataloaders(
         test_config,
         evaluation=False,
-        ood_eval=False,
         num_workers=2,
     )
 
@@ -84,8 +83,7 @@ def test_inf_data_loader(test_config):
     (_, eval_dl, _), _ = get_dataloaders(
         test_config,
         evaluation=True,
-        ood_eval=False,
-        num_workers=0,
+        num_workers=1,
         infinite_sampler=True,
     )
 
@@ -102,14 +100,12 @@ def test_ood_data_loader(test_config):
     dataloaders, _ = get_dataloaders(
         test_config,
         evaluation=True,
-        ood_eval=True,
         num_workers=1,
     )
 
     train_dl, eval_dl, test_dl = dataloaders
-    assert train_dl is None
 
-    for dl in (eval_dl, test_dl):
+    for dl in (train_dl, eval_dl, test_dl):
         assert dl is not None
         x = next(iter(dl))
         assert x is not None
@@ -119,10 +115,10 @@ def test_ood_data_loader(test_config):
 #     data = test_config.data
 #     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
 #     data.splits_dir = "/codespace/sade/sade/datasets/brains/"
-    
+
 #     if not os.path.exists(data.dir_path):
 #         pytest.skip("Data not available")
-    
+
 #     data.image_size = (48, 64, 48)
 #     data.spacing_pix_dim = 4.0
 #     data.num_channels = 2
@@ -153,7 +149,7 @@ def test_ood_data_loader(test_config):
 #         ood_eval=True,
 #         num_workers=1,
 #     )
-        
+
 #     train_dl, eval_dl, test_dl = dataloaders
 #     assert train_dl is None
 
