@@ -9,7 +9,6 @@ from monai.data import CacheDataset
 from monai.transforms import *
 from torch.utils.data import DataLoader, RandomSampler
 
-from sade.datasets.filenames import get_image_files_list
 from sade.datasets.transforms import (
     get_lesion_transform,
     get_train_transform,
@@ -19,7 +18,6 @@ from sade.datasets.transforms import (
 
 
 def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
-
     if re.match(r"lesion", dataset_name):
         image_files_list = [
             {"image": p, "label": p.replace(".nii.gz", "_label.nii.gz")}
