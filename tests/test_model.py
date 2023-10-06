@@ -1,5 +1,6 @@
 import os
 
+os.environ["CUDA_VISIBLE_DEVICES"] = "-1"
 import ml_collections
 import pytest
 import torch
@@ -17,9 +18,8 @@ def test_config():
     data = config.data = ml_collections.ConfigDict()
     data.cache_rate = 0
     data.dataset = "ABCD"
-    data.ood_ds = "tumor"
-    data.image_size = (48, 64, 48)
-    data.spacing_pix_dim = 4.0
+    data.image_size = (8, 4, 8)
+    data.spacing_pix_dim = 8.0
     data.num_channels = 1
     data.dir_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "dummy_data")
     data.splits_dir = data.dir_path
@@ -43,11 +43,11 @@ def test_config():
     model.act = "memswish"
     model.scale_by_sigma = True
     model.ema_rate = 0.9999
-    model.nf = 8
+    model.nf = 4
     model.norm_num_groups = 2
     model.blocks_down = (1, 2, 1)
     model.blocks_up = (1, 1)
-    model.time_embedding_sz = 32
+    model.time_embedding_sz = 4
     model.init_scale = 0.0
     model.conv_size = 3
     model.self_attention = False
@@ -62,11 +62,11 @@ def test_config():
 
     # flow-model
     config.flow = flow = ml_collections.ConfigDict()
-    flow.num_blocks = 4
+    flow.num_blocks = 2
     flow.patch_batch_size = 8
-    flow.context_embedding_size = 128
+    flow.context_embedding_size = 16
     flow.use_global_context = True
-    flow.global_embedding_size = 512
+    flow.global_embedding_size = 32
 
     # Config for patch sizes
     flow.local_patch_config = ml_collections.ConfigDict()
@@ -76,7 +76,7 @@ def test_config():
 
     # Config for larger receptive fields outputting gobal context
     flow.global_patch_config = ml_collections.ConfigDict()
-    flow.global_patch_config.kernel_size = 11
+    flow.global_patch_config.kernel_size = 7
     flow.global_patch_config.padding = 2
     flow.global_patch_config.stride = 4
 
@@ -98,9 +98,8 @@ def test_model_initialization(test_config):
 
 def test_model_output_shape(test_config):
     test_config.data.num_channels = 7
-    test_config.data.image_size = (16, 8, 16)
-
     score_model = registry.create_model(test_config)
+    score_model = score_model.eval().requires_grad_(False)
     score_fn = registry.get_model_fn(score_model, train=False)
     N, C, H, W, D = 3, test_config.data.num_channels, *test_config.data.image_size
     x = torch.ones(N, C, H, W, D)
@@ -115,6 +114,7 @@ def test_model_output_shape(test_config):
 
 def test_mixed_precision(test_config):
     score_model = registry.create_model(test_config)
+    score_model = score_model.eval().requires_grad_(False)
     score_fn = registry.get_model_fn(score_model, amp=True, train=False)
     N, C, H, W, D = 1, test_config.data.num_channels, *test_config.data.image_size
     x = torch.ones(N, C, H, W, D)
@@ -130,10 +130,10 @@ def test_mixed_precision(test_config):
 
 
 def test_msma_score_fn(test_config):
-    test_config.data.image_size = (16, 8, 16)
-    test_config.msma.n_timesteps = S = 10
+    test_config.msma.n_timesteps = S = 3
 
     score_model = registry.create_model(test_config)
+    score_model = score_model.eval().requires_grad_(False)
     msma_score_fn = registry.get_msma_score_fn(
         test_config, score_model, return_norm=False, denoise=False
     )
@@ -156,10 +156,8 @@ def test_msma_score_fn(test_config):
 
 
 def test_flow_model_output_shape(test_config):
-    test_config.data.image_size = (16, 8, 16)
-
-    flow_model = registry.create_flow(test_config).eval()
-    # score_fn = registry.get_model_fn(flow_model, train=False)
+    flow_model = registry.create_flow(test_config)
+    flow_model = flow_model.eval().requires_grad_(False)
     N, C, H, W, D = 3, test_config.msma.n_timesteps, *test_config.data.image_size
     x = torch.ones(N, C, H, W, D, dtype=torch.float32, device=test_config.device)
 

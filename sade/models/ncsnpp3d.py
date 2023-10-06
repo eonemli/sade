@@ -1,20 +1,17 @@
-from . import registry, layers, layerspp
+import functools
 
 # The above cannot be `from sade.models` as that does not populate the global _MODELS dict
 from typing import Tuple, Union
 
-import functools
 import numpy as np
 import torch
 import torch.nn as nn
-
-from monai.networks.blocks.segresnet_block import (
-    get_conv_layer,
-    get_upsample_layer,
-)
+from monai.networks.blocks.segresnet_block import get_conv_layer, get_upsample_layer
 from monai.networks.layers.factories import Dropout
 from monai.networks.layers.utils import get_norm_layer
 from monai.utils import UpsampleMode
+
+from . import layers, layerspp, registry
 
 default_initializer = layers.default_init
 MultiSequential = layers.MultiSequential
@@ -272,7 +269,7 @@ class SegResNetpp(registry.BaseScoreModel):
     def _make_final_conv(self, out_channels: int):
         return nn.Sequential(
             get_norm_layer(
-                name=("group", {"num_groups": 8}),  # self.norm,
+                name=("group", {"num_groups": self.norm_num_groups}),  # self.norm,
                 spatial_dims=self.spatial_dims,
                 channels=self.init_filters,
             ),
