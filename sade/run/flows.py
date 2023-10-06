@@ -1,22 +1,25 @@
 import copy
 import functools
 import glob
+import logging
 import os
 import sys
-import numpy as np
 
+import models.registry as registry
+import numpy as np
 import torch
 from torch.utils import tensorboard
 from torchinfo import summary
 from tqdm import tqdm
+
 from sade.datasets.loaders import get_dataloaders
-
-from sade.models.flows import PatchFlow
-import models.registry as registry
 from sade.models.ema import ExponentialMovingAverage
-from sade.run.utils import get_flow_rundir, restore_checkpoint, restore_pretrained_weights
-
-import logging
+from sade.models.flows import PatchFlow
+from sade.run.utils import (
+    get_flow_rundir,
+    restore_checkpoint,
+    restore_pretrained_weights,
+)
 
 
 def flow_trainer(config, workdir):
@@ -108,7 +111,7 @@ def flow_trainer(config, workdir):
 
     losses = []
     batch_sz = config.training.batch_size
-    total_iters = 10  # kimg * 1000 // batch_sz + 1
+    total_iters = kimg * 1000 // batch_sz + 1
     progbar = tqdm(range(total_iters))
     niter = 0
     imgcount = 0
@@ -146,7 +149,6 @@ def flow_trainer(config, workdir):
 
             progbar.set_description(f"Val Loss: {val_loss:.4f}")
             losses.append(val_loss)
-
 
         if log_tensorboard:
             for loss_type in loss_dict:

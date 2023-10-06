@@ -2,21 +2,17 @@ import functools
 import logging
 import os
 
+import models.registry as registry
+import numpy as np
 import torch
 import wandb
 from datasets.loaders import get_dataloaders
 from models.ema import ExponentialMovingAverage
-import models.registry as registry
-from optim import get_step_fn, optimization_manager, get_diagnsotic_fn
+from optim import get_diagnsotic_fn, get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
-from .utils import (
-    restore_pretrained_weights,
-    save_checkpoint,
-    plot_slices,
-)
 from .sampling import get_sampling_fn
-import numpy as np
+from .utils import plot_slices, restore_pretrained_weights, save_checkpoint
 
 makedirs = functools.partial(os.makedirs, exist_ok=True)
 
@@ -67,8 +63,7 @@ def finetuner(config, workdir):
     dataloaders, datasets = get_dataloaders(
         config,
         evaluation=False,
-        ood_eval=False,
-        num_workers=2,
+        num_workers=4,
         infinite_sampler=True,
     )
 
@@ -114,7 +109,7 @@ def finetuner(config, workdir):
 
     # These will be the 'global' model weights that will be updated slowly
     slow_model = ExponentialMovingAverage(
-        state['model'].parameters(), decay=1 - config.finetuning.outer_step_size
+        state["model"].parameters(), decay=1 - config.finetuning.outer_step_size
     )
 
     num_finetune_steps = config.finetuning.n_iters
@@ -131,11 +126,11 @@ def finetuner(config, workdir):
         loss /= num_fast_steps
 
         # Execute slow weight updates
-        slow_model.update(state['model'].parameters())
+        slow_model.update(state["model"].parameters())
 
         # Update main model with slow weights
-        slow_model.copy_to(state['model'].parameters())
-        state['ema'] = ExponentialMovingAverage(state['model'].parameters(), decay=0)
+        slow_model.copy_to(state["model"].parameters())
+        state["ema"] = ExponentialMovingAverage(state["model"].parameters(), decay=0)
 
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e" % (step, loss))
@@ -174,10 +169,31 @@ def finetuner(config, workdir):
                     step=step,
                 )
 
-        # Save a checkpoint periodically and generate samples if needed
+        # Save a checkpoint periodically
         if step % config.training.snapshot_freq == 0:
             # Save the checkpoint.
+            logging.info(f"step: {step}, saving checkpoint...")
             save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint-meta.pth"), state)
+
+        # Generate samples periodically
+        if (step + 1) % (config.training.snapshot_freq * 100) == 0:
+            logging.info("step: %d, generating samples..." % (step))
+            sample, n = sampling_fn(state["model"])
+            this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
+            makedirs(this_sample_dir)
+            sample = sample.permute(0, 2, 3, 4, 1).cpu().numpy()
+            logging.info("step: %d, done!" % (step))
+
+            with open(os.path.join(this_sample_dir, "sample.np"), "wb") as fout:
+                np.save(fout, sample)
+
+            fname = os.path.join(this_sample_dir, "sample.png")
+
+            try:
+                plot_slices(sample, fname)
+                wandb.log({"sample": wandb.Image(fname)})
+            except:
+                logging.warning("Plotting failed!")
 
     # Save the final checkpoint.
     save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint_{step}.pth"), state)
