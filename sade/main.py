@@ -9,18 +9,16 @@ import torch
 import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
-from run.train import trainer
-from run.finetune import finetuner
 from run.eval import evaluator
+from run.finetune import finetuner
 from run.flows import flow_evaluator, flow_trainer
+from run.train import trainer
 
 warnings.filterwarnings("ignore")
 
 FLAGS = flags.FLAGS
 
-config_flags.DEFINE_config_file(
-    "config", None, "Training configuration.", lock_config=True
-)
+config_flags.DEFINE_config_file("config", None, "Training configuration.", lock_config=True)
 flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
@@ -28,9 +26,7 @@ flags.DEFINE_enum(
     ["train", "finetune", "eval", "score", "sweep", "flow-train", "flow-eval"],
     "Running mode: train or eval",
 )
-flags.DEFINE_string(
-    "eval_folder", "eval", "The folder name for storing evaluation results"
-)
+flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
 flags.DEFINE_string(
     "sweep_id", None, "Optional ID for a sweep controller if running a sweep."
 )
@@ -75,22 +71,28 @@ def main(argv):
         ):
             config = ml_collections.ConfigDict(wandb.config)
 
+            # Use run id for directory name
+            workdir = os.path.join(FLAGS.workdir, f"finetune", wandb.run.id)
+            os.makedirs(workdir, exist_ok=True)
+            setup_logger(workdir)
+
             # Run the training pipeline
             trainer(config, FLAGS.workdir)
     elif FLAGS.mode == "finetune":
-        # Create work directory for fine-tuning
-        workdir = os.path.join(FLAGS.workdir, "finetune")
-        setup_logger(workdir)
-
         with wandb.init(
             project=FLAGS.project,
             config=FLAGS.config.to_dict(),
             resume="allow",
-            sync_tensorboard=True,
+            sync_tensorboard=False,
         ):
             config = ml_collections.ConfigDict(wandb.config)
 
-        finetuner(FLAGS.config, workdir)
+            # Use run id for directory name
+            workdir = os.path.join(FLAGS.workdir, f"finetune", wandb.run.id)
+            os.makedirs(workdir, exist_ok=True)
+            setup_logger(workdir)
+
+            finetuner(FLAGS.config, workdir)
 
     elif FLAGS.mode == "eval":
         evaluator(FLAGS.config, FLAGS.workdir)
