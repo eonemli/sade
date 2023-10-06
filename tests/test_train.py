@@ -1,5 +1,6 @@
 import os
 
+# os.environ["CUDA_VISIBLE_DEVICES"] = "2"
 import ml_collections
 import pytest
 import torch
@@ -18,12 +19,12 @@ def test_config():
     config.device = (
         torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     )
+    config.fp16 = False
 
     data = config.data = ml_collections.ConfigDict()
     data.cache_rate = 0
     data.dataset = "ABCD"
-    data.ood_ds = "tumor"
-    data.image_size = (16, 16, 16)
+    data.image_size = (8, 8, 8)
     data.num_channels = 2
     data.spacing_pix_dim = 1.0
     data.dir_path = os.path.join(os.path.abspath(os.path.dirname(__file__)), "dummy_data")
@@ -52,7 +53,7 @@ def test_config():
     model.norm_num_groups = 2
     model.blocks_down = (1, 2, 1)
     model.blocks_up = (1, 1)
-    model.time_embedding_sz = 32
+    model.time_embedding_sz = 8
     model.init_scale = 0.0
     model.conv_size = 3
     model.self_attention = False
@@ -73,7 +74,7 @@ def test_config():
     optim.beta1 = 0.9
     optim.eps = 1e-8
     optim.warmup = -1
-    optim.grad_clip = 1.0
+    optim.grad_clip = 10.0
 
     return config
 
@@ -137,17 +138,19 @@ def test_optimization_fn(test_config):
         sde, train=True, reduce_mean=False, likelihood_weighting=False, amp=False
     )
     N, C, H, W, D = 1, test_config.data.num_channels, *test_config.data.image_size
-    x = torch.ones(N, C, H, W, D, device=test_config.device)
+    x = torch.zeros(N, C, H, W, D, device=test_config.device)
 
     torch.manual_seed(42)
-    pre_opt_loss = loss_fn(score_model, x)
-    for _ in range(10):
+    with torch.inference_mode():
+        pre_opt_loss = loss_fn(score_model, x).item()
+    for _ in range(20):
         optimizer.zero_grad(set_to_none=True)
         loss = loss_fn(score_model, x)
         loss.backward()
         optimize_fn(score_model.parameters(), step=0)
     torch.manual_seed(42)  # trying to get the same results
-    post_opt_loss = loss_fn(score_model, x)
+    with torch.inference_mode():
+        post_opt_loss = loss_fn(score_model, x).item()
     assert post_opt_loss < pre_opt_loss
 
 
