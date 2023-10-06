@@ -1,0 +1,302 @@
+"""Metrics for evaluating OOD detection and segmentation performance"""
+
+import logging
+
+import numpy as np
+import skimage
+import skimage.filters as skf
+import torch
+from monai.metrics import compute_average_surface_distance, compute_hausdorff_distance
+from scipy.stats import percentileofscore
+from skimage.morphology import ball
+from sklearn.metrics import (
+    auc,
+    average_precision_score,
+    precision_recall_curve,
+    roc_auc_score,
+    roc_curve,
+)
+from tqdm.auto import tqdm
+
+
+def ood_metrics(
+    inlier_score, outlier_score, plot=False, verbose=False, names=["Inlier", "Outlier"]
+):
+    import numpy as np
+    import seaborn as sns
+
+    y_true = np.concatenate((np.zeros(len(inlier_score)), np.ones(len(outlier_score))))
+    y_scores = np.concatenate((inlier_score, outlier_score))
+
+    prec_in, rec_in, _ = precision_recall_curve(y_true, y_scores)
+
+    # Outliers are treated as "positive" class
+    # i.e label 1 is now label 0
+    prec_out, rec_out, _ = precision_recall_curve((y_true == 0), -y_scores)
+
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=False)
+
+    # rtol=1e-3 implies range of [0.949, 0.951]
+    find_fpr = np.isclose(tpr, 0.95, rtol=1e-3, atol=1e-4).any()
+
+    if find_fpr:
+        tpr99_idx = np.where(np.isclose(tpr, 0.99, rtol=-1e-3, atol=1e-4))[0][0]
+        tpr95_idx = np.where(np.isclose(tpr, 0.95, rtol=1e-3, atol=1e-4))[0][0]
+    else:
+        # This is becasuse numpy bugs out when the scores are fully separable
+        # OR completely unseparable :D
+        tpr99_idx = np.where(np.isclose(tpr, 0.99, rtol=1e-2, atol=1e-2))[0][0]
+        # print("Clipping 99 TPR to:", tpr[tpr99_idx])
+        if np.isclose(tpr, 0.95, rtol=-1e-2, atol=3e-2).any():
+            tpr95_idx = np.where(np.isclose(tpr, 0.95, rtol=-1e-2, atol=3e-2))[0][0]
+        else:
+            tpr95_idx = np.where(np.isclose(tpr, 0.95, rtol=2e-2, atol=3e-2))[0][0]
+
+        logging.info(f"Clipping 95 TPR to: {tpr[tpr95_idx]}")
+        logging.info(f"Clipping 99 TPR to: {tpr[tpr99_idx]}")
+
+    # Detection Error
+    de = np.min(0.5 - tpr / 2 + fpr / 2)
+
+    metrics = dict(
+        true_tpr95=tpr[tpr95_idx],
+        fpr_tpr99=fpr[tpr99_idx],
+        fpr_tpr95=fpr[tpr95_idx],
+        de=de,
+        roc_auc=roc_auc_score(y_true, y_scores),
+        pr_auc_in=auc(rec_in, prec_in),
+        pr_auc_out=auc(rec_out, prec_out),
+        #         fpr_tpr80=fpr[tpr80_idx],
+        ap=average_precision_score(y_true, y_scores),
+    )
+
+    if plot:
+        fig, axs = plt.subplots(1, 2, figsize=(16, 4))
+        fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=True)
+        ticks = np.arange(0.0, 1.1, step=0.1)
+
+        axs[0].plot(fpr, tpr)
+        axs[0].set(
+            xlabel="FPR",
+            ylabel="TPR",
+            title="ROC",
+            ylim=(-0.05, 1.05),
+            xticks=ticks,
+            yticks=ticks,
+        )
+
+        axs[1].plot(rec_in, prec_in, label="PR-In")
+        axs[1].plot(rec_out, prec_out, label="PR-Out")
+        axs[1].set(
+            xlabel="Recall",
+            ylabel="Precision",
+            title="Precision-Recall",
+            ylim=(-0.05, 1.05),
+            xticks=ticks,
+            yticks=ticks,
+        )
+        axs[1].legend()
+        fig.suptitle("{} vs {}".format(*names), fontsize=20)
+    #         plt.show()
+    #         plt.close()
+
+    if verbose:
+        print("{} vs {}".format(*names))
+        print("----------------")
+        print("ROC-AUC: {:.4f}".format(metrics["roc_auc"] * 100))
+        print(
+            "PR-AUC (In/Out): {:.4f} / {:.4f}".format(
+                metrics["pr_auc_in"] * 100, metrics["pr_auc_out"] * 100
+            )
+        )
+        print("FPR (95% TPR): {:.2f}%".format(metrics["fpr_tpr95"] * 100))
+        print("Detection Error: {:.2f}%".format(de * 100))
+        print("FPR (99% TPR): {:.2f}%".format(metrics["fpr_tpr99"] * 100))
+
+    return metrics
+
+
+def plot_curves(inlier_score, outlier_score, label, axs=()):
+    if len(axs) == 0:
+        fig, axs = plt.subplots(1, 2, figsize=(16, 4))
+
+    y_true = np.concatenate((np.zeros(len(inlier_score)), np.ones(len(outlier_score))))
+    y_scores = np.concatenate((inlier_score, outlier_score))
+
+    fpr, tpr, thresholds = roc_curve(y_true, y_scores, drop_intermediate=True)
+    roc_auc = roc_auc = roc_auc_score(y_true, y_scores)
+
+    prec_in, rec_in, _ = precision_recall_curve(y_true, y_scores)
+    prec_out, rec_out, _ = precision_recall_curve((y_true == 0), -y_scores)
+    pr_auc = auc(rec_in, prec_in)
+
+    ticks = np.arange(0.0, 1.1, step=0.1)
+    axs[0].plot(fpr, tpr, label="{}: {:.3f}".format(label, roc_auc))
+    axs[0].set(
+        xlabel="FPR",
+        ylabel="TPR",
+        title="ROC",
+        ylim=(-0.05, 1.05),
+        xticks=ticks,
+        yticks=ticks,
+    )
+
+    axs[1].plot(rec_in, prec_in, label="{}: {:.3f}".format(label, pr_auc))
+    # axs[1].plot(rec_out, prec_out, label="PR-Out")
+    axs[1].set(
+        xlabel="Recall",
+        ylabel="Precision",
+        title="Precision-Recall",
+        ylim=(-0.05, 1.05),
+        xticks=ticks,
+        yticks=ticks,
+    )
+
+    axs[0].legend()
+    axs[1].legend()
+
+    return axs
+
+
+###### Segmentation metrics and helper functions ########
+
+
+def segmentation_metrics(reference_ccp, segmentation_ccp):
+    """Compute component-wise segmentation metrics for a single sample"""
+    FP = 0
+    TP = 0
+    FN = 0
+
+    GT = len(np.unique(reference_ccp.ravel())) - 1
+    S = len(np.unique(segmentation_ccp.ravel())) - 1
+
+    # Using reference components
+    for i in range(1, GT + 1):
+        lesion_comp_mask = reference_ccp == i
+        seg_overlap = segmentation_ccp[lesion_comp_mask]
+        if np.unique(seg_overlap).sum() > 0:
+            TP += 1
+        else:
+            # No matching segementation component
+            FN += 1
+
+    # Iterating over segemntation components
+    for i in range(1, S + 1):
+        lesion_comp_mask = segmentation_ccp == i
+        seg_overlap = reference_ccp[lesion_comp_mask]
+
+        # If no matching reference component
+        if np.unique(seg_overlap).sum() == 0:
+            FP += 1
+
+    metrics = {
+        "TP": TP,
+        "FP": FP,
+        "FN": FN,
+        "ground_truth_components": GT,
+        "segmentation_components": S,
+    }
+
+    return metrics
+
+
+def remove_small_components(ccp, size=1, verbose=True):
+    filtered_ccp = ccp.copy()
+    n_components = len(np.unique(ccp)) - 1
+    new_components = n_components
+    for i in range(1, n_components + 1):
+        lesion_comp_mask = ccp == i
+        if lesion_comp_mask.sum() < size:
+            filtered_ccp[lesion_comp_mask] = 0
+            new_components -= 1
+    if verbose:
+        logging.info(
+            f"Number of components removed: {n_components - new_components} -> Remaining: {new_components}"
+        )
+
+    return filtered_ccp, new_components
+
+
+def post_processing(
+    seg_mask,
+    brain_mask_rim=None,
+    sigma=0,
+    dilate=False,
+    min_component_size=2,
+    verbose=False,
+):
+    # "Erosion" - Removing single voxel components
+    seg_ccp, seg_components = skimage.measure.label(
+        seg_mask, background=0, return_num=True, connectivity=2
+    )
+    seg_ccp, num_seg_components_post = remove_small_components(
+        seg_ccp, size=min_component_size, verbose=verbose
+    )
+
+    # Denoising - Removing small components
+    if sigma > 0.0:
+        smoothed_seg_mask = skf.gaussian(seg_ccp > 0, sigma=sigma) > 0
+        seg_ccp, seg_components = skimage.measure.label(
+            smoothed_seg_mask, background=0, return_num=True, connectivity=1
+        )
+
+    # Ignoring brain border
+    if brain_mask_rim is not None:
+        border_components = np.unique(seg_ccp[brain_mask_rim.astype(bool)])
+
+        for i in border_components:
+            if i == 0:
+                continue
+            seg_ccp[seg_ccp == i] = 0
+
+    post_proc_mask = seg_ccp > 0
+
+    # End result is similar to morphological "opening" when combined with "erosion" above
+    if dilate:
+        post_proc_mask = skimage.morphology.dilation(post_proc_mask, footprint=ball(1))
+
+    return post_proc_mask
+
+
+def get_best_thresholds(
+    anomaly_scores,
+    reference_masks,
+    brain_mask_rims,
+    num_thresholds_search=100,
+    start_percentile_thresh=0.95,
+    stop_percentile_thresh=0.9999,
+):
+    seg_thresholds = []
+
+    progress_bar = tqdm(range(len(anomaly_scores)), desc="# Processed: ?")
+    for sample_idx in progress_bar:
+        skull_mask = brain_mask_rims[sample_idx]
+        ref_mask = post_processing(reference_masks[sample_idx], skull_mask)
+        y_ref = torch.from_numpy(ref_mask)
+        y_ref = (
+            torch.nn.functional.one_hot(y_ref.long(), 2).unsqueeze(0).permute(0, 4, 1, 2, 3)
+        )
+        seg = anomaly_scores[sample_idx]
+
+        threshes = np.linspace(
+            np.quantile(seg, start_percentile_thresh),
+            np.quantile(seg, stop_percentile_thresh),
+            num_thresholds_search,
+        )
+
+        dists = []
+        for t in threshes:
+            seg_mask = seg > t
+            seg_mask = post_processing(seg_mask, brain_mask_rim=skull_mask, dilate=True)
+            y_pred = torch.from_numpy(seg_mask).float().unsqueeze(0)
+            y_pred = torch.nn.functional.one_hot(y_pred.long(), 2).permute(0, 4, 1, 2, 3)
+            d = compute_average_surface_distance(y_ref, y_pred, symmetric=False).item()
+            dists.append(d)
+
+        dists = np.asarray(dists)
+        best_thresh = threshes[dists.argmin()]
+        seg_thresholds.append(best_thresh)
+
+        progress_bar.set_description("# Processed: {:d}".format(sample_idx + 1))
+
+    return seg_thresholds
