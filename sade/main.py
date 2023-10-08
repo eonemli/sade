@@ -30,10 +30,10 @@ flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluati
 flags.DEFINE_string(
     "sweep_id", None, "Optional ID for a sweep controller if running a sweep."
 )
-flags.DEFINE_string("project", None, "Wandb project name.")
+flags.DEFINE_string("project", "sade", "Wandb project name.")
 flags.DEFINE_bool("cuda_opt", False, "Whether to use cuda benchmark and tf32 matmul.")
 # flags.DEFINE_string("pretrain_dir", None, "Directory with pretrained weights.")
-flags.mark_flags_as_required(["workdir", "config", "mode", "project"])
+flags.mark_flags_as_required(["workdir", "config", "mode"])
 
 
 def setup_logger(workdir):
