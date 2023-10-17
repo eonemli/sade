@@ -8,6 +8,7 @@ import sys
 import models.registry as registry
 import numpy as np
 import torch
+import wandb
 from torch.utils import tensorboard
 from torchinfo import summary
 from tqdm import tqdm
@@ -54,7 +55,7 @@ def flow_trainer(config, workdir):
         config,
         evaluation=False,
         ood_eval=False,
-        num_workers=2,
+        num_workers=4,
         infinite_sampler=True,
     )
 
@@ -63,6 +64,7 @@ def flow_trainer(config, workdir):
     eval_iter = iter(eval_dl)
 
     run_dir = get_flow_rundir(config, workdir)
+    run_dir = run_dir + "_" + wandb.run.id
     os.makedirs(run_dir, exist_ok=True)
     logging.info(f"Saving checkpoints to {run_dir}")
 
@@ -208,7 +210,7 @@ def flow_evaluator(config, workdir):
     # Initialize flow model
     flownet = registry.create_flow(config).eval().requires_grad_(False)
 
-    flow_path = get_flow_rundir(config, workdir)
+    flow_path = workdir
     ckpt_path = f"{flow_path}/checkpoint.pth"
     if not os.path.exists(ckpt_path):
         ckpt_path = f"{flow_path}/checkpoint-meta.pth"
@@ -223,8 +225,17 @@ def flow_evaluator(config, workdir):
     _ = state_dict["model_state_dict"].pop("position_encoder.cached_penc", None)
     flownet.load_state_dict(state_dict["model_state_dict"], strict=True)
     logging.info(
-        f"Loaded flow model at iter= {state_dict['kimg']}, val_loss= {state_dict['val_loss']}"
+        f"Loaded flow model at iter={state_dict['kimg']}, val_loss={state_dict['val_loss']}"
     )
+
+    # Create save directory
+    checkpoint_step = state_dict["kimg"]
+    save_dir = os.path.join(workdir, "eval", f"ckpt_{checkpoint_step}")
+    os.makedirs(save_dir, exist_ok=True)
+    logging.info(f"Saving flow evaluation results to {save_dir}")
+    experiment = config.eval.experiment
+    experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    logging.info(f"Running epxperiment {experiment_name}")
 
     # Load datasets
     # Build data iterators
@@ -266,7 +277,7 @@ def flow_evaluator(config, workdir):
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
 
     np.savez_compressed(
-        f"{flow_path}/{config.data.dataset.lower()}_{config.data.ood_ds.lower()}_scores.npz",
+        f"{save_dir}/{experiment_name}_results.npz",
         **{"inliers": x_inlier_nlls, "ood": x_ood_nlls},
     )
 
