@@ -6,9 +6,10 @@ import logging
 import numpy as np
 import torch
 import wandb
+from torchinfo import summary
+
 from sade.models.flows import PatchFlow
 from sade.sde_lib import VESDE, VPSDE, subVPSDE
-from torchinfo import summary
 
 _MODELS = {}
 
@@ -62,7 +63,7 @@ def get_sigmas(config):
     return sigmas
 
 
-def create_model(config, log_grads=False, print_summary=False):
+def create_model(config, log_grads=False, print_summary=False, distributed=True):
     """Create the score model and wrap it with DataParallel."""
     model_name = config.model.name
     score_model = get_model(model_name)(config)
@@ -83,7 +84,10 @@ def create_model(config, log_grads=False, print_summary=False):
         wandb.watch(score_model, log="all", log_freq=config.training.sampling_freq)
 
     score_model = score_model.to(config.device)
-    score_model = torch.nn.DataParallel(score_model)
+
+    if distributed:
+        score_model = torch.nn.DataParallel(score_model)
+
     logging.info("Model created")
 
     return score_model
@@ -252,7 +256,7 @@ def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
         timesteps = torch.linspace(eps, end, n_timesteps, device=config.device)
         timesteps = timesteps[:: n_timesteps // config.msma.n_timesteps]
 
-    def scorer(x):
+    def scorer(x) -> torch.Tensor:
         """Compute scores for a batch of samples.
         Indexing into the timesteps list grabs the *exact* sigmas used during training
         The alternate would be to compute a linearly spaced list of sigmas of size msma.n_timesteps
