@@ -176,7 +176,7 @@ def finetuner(config, workdir):
             save_checkpoint(os.path.join(checkpoint_dir, f"checkpoint-meta.pth"), state)
 
         # Generate samples periodically
-        if (step + 1) % (config.training.snapshot_freq * 100) == 0:
+        if (step + 1) % (config.training.sampling_freq) == 0:
             logging.info("step: %d, generating samples..." % (step))
             sample, n = sampling_fn(state["model"])
             this_sample_dir = os.path.join(sample_dir, "iter_{}".format(step))
