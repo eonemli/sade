@@ -1,16 +1,18 @@
 import glob
 import logging
 import os
-import numpy as np
+import re
 
-import torch
-from tqdm import tqdm
-from datasets.loaders import get_dataloaders
 import models.registry as registry
+import numpy as np
+import torch
+from datasets.loaders import get_dataloaders
+from tqdm import tqdm
+
 from sade.models.ema import ExponentialMovingAverage
 from sade.ood_detection_helper import auxiliary_model_analysis
 
-from .utils import restore_pretrained_weights, restore_checkpoint
+from .utils import restore_checkpoint, restore_pretrained_weights
 
 
 def evaluator(config, workdir):
@@ -33,13 +35,17 @@ def evaluator(config, workdir):
         ema=ExponentialMovingAverage(score_model.parameters(), decay=0),
     )
     checkpoint_dir = os.path.join(workdir, "checkpoints")
-    if config.eval.checkpoint_num > -1:
+    if config.eval.checkpoint_num > 0:
         checkpoint_num = config.eval.checkpoint_num
         checkpoint_path = os.path.join(checkpoint_dir, f"checkpoint_{checkpoint_num}.pth")
     else:
         # Get the latest checkpoint
-        checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint*.pth"))
-        checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
+        checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint_*.pth"))
+        # print(checkpoint_paths)
+
+        checkpoint_path = max(
+            checkpoint_paths, key=lambda x: int(re.search(r"_(\d+)\.pth", x).group(1))
+        )
 
     # state = restore_pretrained_weights(checkpoint_path, state, config.device)
     state = restore_checkpoint(checkpoint_path, state, config.device)
@@ -107,3 +113,6 @@ def evaluator(config, workdir):
         f"{save_dir}/{experiment_name}_results.npz",
         **experiment_dict,
     )
+
+    # Print results
+    print(results["GMM"]["metrics"])
