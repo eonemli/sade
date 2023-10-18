@@ -213,29 +213,22 @@ def denoise_update(x, eps=1e-2):
     return x
 
 
-def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
-    """Build a function to compute the norm of the score function."""
+def get_msma_sigmas(config):
+    """Get sigmas appropriately spaced for msma."""
 
-    # Setup SDEs
     sde = create_sde(config)
-
-    score_fn = get_score_fn(
-        sde,
-        score_model,
-        train=False,
-        amp=config.training.use_fp16,
-    )
-
     n_timesteps = config.model.num_scales
     eps = config.msma.min_timestep
     end = config.msma.max_timestep
+    sigma_min = sde.marginal_prob(torch.zeros(1), torch.tensor(eps))[1]
+    sigma_max = sde.marginal_prob(torch.zeros(1), torch.tensor(end))[1]
 
     schedule = config.msma.schedule if "schedule" in config.msma else "geometric"
     if schedule == "linear":
         logging.info("Using linearly spaced sigmas.")
         msma_sigmas = torch.linspace(
-            sde.sigma_min,
-            sde.sigma_max,
+            sigma_min,
+            sigma_max,
             config.msma.n_timesteps,
             device=config.device,
         )
@@ -244,8 +237,8 @@ def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
         logging.info("Using geometrically spaced sigmas.")
         msma_sigmas = torch.exp(
             torch.linspace(
-                np.log(sde.sigma_min),
-                np.log(sde.sigma_max),
+                np.log(sigma_min),
+                np.log(sigma_max),
                 config.msma.n_timesteps,
                 device=config.device,
             )
@@ -256,13 +249,29 @@ def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
         timesteps = torch.linspace(eps, end, n_timesteps, device=config.device)
         timesteps = timesteps[:: n_timesteps // config.msma.n_timesteps]
 
-    def scorer(x) -> torch.Tensor:
+    return timesteps
+
+
+def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
+    """Build a function to compute the norm of the score function."""
+
+    sde = create_sde(config)
+
+    score_fn = get_score_fn(
+        sde,
+        score_model,
+        train=False,
+        amp=config.training.use_fp16,
+    )
+
+    timesteps = get_msma_sigmas(config)
+
+    def scorer(x, timesteps=timesteps) -> torch.Tensor:
         """Compute scores for a batch of samples.
         Indexing into the timesteps list grabs the *exact* sigmas used during training
         The alternate would be to compute a linearly spaced list of sigmas of size msma.n_timesteps
         However, this would technicaly output sigmas never seen during training...
         """
-
         n_timesteps = len(timesteps)
 
         with torch.no_grad():

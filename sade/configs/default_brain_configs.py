@@ -46,7 +46,7 @@ def get_default_configs():
 
     experiment = config.eval.experiment = ml_collections.ConfigDict()
     experiment.id = "default"
-    experiment.train = "abcd-val" # The dataset used for training MSMA
+    experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
     experiment.ood = "tumor"
 
@@ -55,7 +55,7 @@ def get_default_configs():
     msma.max_timestep = 1.0
     msma.min_timestep = 0.1  # Ignore first x% of sigmas
     msma.n_timesteps = 20  # Number of discrete timesteps to evaluate
-    msma.seq = "linear"  # Timestep schedule that dictates which sigma to sample
+    msma.schedule = "geometric"  # Timestep schedule that dictates which sigma to sample
     msma.checkpoint = -1  # ckpt number for score norms, defaults to latest (-1)
     msma.skip_inliers = False  # skip computing score norms for inliers
     msma.expectation_iters = -1
@@ -126,14 +126,14 @@ def get_default_configs():
     # finetuning
     config.finetuning = finetuning = ml_collections.ConfigDict()
     finetuning.n_iters = 5000
-    finetuning.n_fast_steps = 10
-    finetuning.outer_step_size = 0.01
+    finetuning.n_fast_steps = 20
+    finetuning.outer_step_size = 0.1
     finetuning.fp16 = False
     finoptim = finetuning.optim = ml_collections.ConfigDict()
     finoptim.weight_decay = 0.0
     finoptim.optimizer = "Adam"
     finoptim.scheduler = "skip"
-    finoptim.lr = 1e-3
+    finoptim.lr = 3e-4
     finoptim.beta1 = 0.0
     finoptim.eps = 1e-8
     finoptim.warmup = 1
@@ -144,7 +144,6 @@ def get_default_configs():
         torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
     )
     config.fp16 = False
-
 
     # Configuration for Hyperparam sweeps
     config.sweep = sweep = ml_collections.ConfigDict()
