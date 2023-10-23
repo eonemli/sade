@@ -49,16 +49,18 @@ def evaluator(config, workdir):
 
     # state = restore_pretrained_weights(checkpoint_path, state, config.device)
     state = restore_checkpoint(checkpoint_path, state, config.device)
+    checkpoint_step = state["step"]
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
+    logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
 
     # Create save directory
-    checkpoint_step = state["step"]
     save_dir = os.path.join(workdir, "eval", f"ckpt_{checkpoint_step}")
     experiment = config.eval.experiment
     experiment_name = f"{experiment.train}_{experiment.inlier}_{experiment.ood}"
     # experiment_name += config.eval.experiment.id
     os.makedirs(save_dir, exist_ok=True)
+    logging.info(f"Saving evaluation results to {save_dir}")
 
     # Build data iterators
 
@@ -71,9 +73,8 @@ def evaluator(config, workdir):
 
     eval_dl, inlier_dl, ood_dl = test_dataloaders
 
-    logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
-
     # Run score norm evaluation
+    logging.info(f"Running experiment: {experiment_name}")
     x_eval_scores = []
     x_inlier_scores = []
     x_ood_scores = []
