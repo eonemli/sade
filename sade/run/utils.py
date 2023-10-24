@@ -8,11 +8,14 @@ import torch
 from sade.models.ema import ExponentialMovingAverage
 
 
-def restore_checkpoint(ckpt_dir, state, device):
+def restore_checkpoint(ckpt_dir, state, device, raise_error=False):
     if not os.path.exists(ckpt_dir):
-        logging.warning(
-            f"No checkpoint found at {ckpt_dir}. " f"Returned the same state as input"
-        )
+        if raise_error:
+            raise FileNotFoundError(f"No checkpoint found at {ckpt_dir}")
+        else:
+            logging.warning(
+                f"No checkpoint found at {ckpt_dir}. " f"Returned the same state as input"
+            )
         return state
     else:
         loaded_state = torch.load(ckpt_dir, map_location=device)

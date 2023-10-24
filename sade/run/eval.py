@@ -48,7 +48,7 @@ def evaluator(config, workdir):
         )
 
     # state = restore_pretrained_weights(checkpoint_path, state, config.device)
-    state = restore_checkpoint(checkpoint_path, state, config.device)
+    state = restore_checkpoint(checkpoint_path, state, config.device, raise_error=True)
     checkpoint_step = state["step"]
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
