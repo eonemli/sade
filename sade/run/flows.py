@@ -38,10 +38,16 @@ def flow_trainer(config, workdir):
     state = dict(model=score_model, ema=ema, step=0)
 
     # Get the score model checkpoint from pretrained run
-    checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-    # latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    # state = restore_checkpoint(latest_checkpoint_path, state, config.device)
-    state = restore_pretrained_weights(checkpoint_paths, state, config.device)
+    # checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
+    # state = restore_pretrained_weights(checkpoint_paths, state, config.device)
+    checkpoint_paths = glob.glob(
+        os.path.join(config.training.pretrain_dir, "..", "checkpoints", "checkpoint_*.pth")
+    )
+    latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
+    state = restore_checkpoint(latest_checkpoint_path, state, config.device)
+    ema.store(score_model.parameters())
+    ema.copy_to(score_model.parameters())
+
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
 
@@ -54,7 +60,6 @@ def flow_trainer(config, workdir):
     dataloaders, _ = get_dataloaders(
         config,
         evaluation=False,
-        ood_eval=False,
         num_workers=4,
         infinite_sampler=True,
     )
@@ -107,7 +112,7 @@ def flow_trainer(config, workdir):
     flow_eval_step = functools.partial(
         PatchFlow.stochastic_step,
         train=False,
-        flow_model=teacher_flow_model,
+        flow_model=flownet,
         n_patches=config.flow.patches_per_train_step,
     )
 
@@ -243,7 +248,7 @@ def flow_evaluator(config, workdir):
         config,
         evaluation=True,
         ood_eval=True,
-        num_workers=2,
+        num_workers=4,
         infinite_sampler=False,
     )
 
@@ -262,7 +267,6 @@ def flow_evaluator(config, workdir):
         x_inlier_nlls.append(z)
         break
 
-    x_ood_samples = []
     x_ood_nlls = []
     for x_img_dict in tqdm(ood_dl):
         x = x_img_dict["image"].to(config.device)

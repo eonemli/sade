@@ -1,13 +1,18 @@
-from . import registry
-from functools import partial
 import logging
+import pdb
+from functools import partial
+
 import FrEIA.framework as Ff
 import FrEIA.modules as Fm
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
+from torch.distributions import Cauchy, Independent, Normal
+
 from sade.models.layers import PositionalEncoding3D, SpatialNorm3D
-from sade.models.layerspp import get_conv_layer, FlowAttentionBlock
+from sade.models.layerspp import FlowAttentionBlock, get_conv_layer
+
+from . import registry
 
 
 @torch.jit.script
@@ -16,17 +21,45 @@ def gaussian_logprob(z, ldj):
     return _GCONST_ - 0.5 * torch.sum(z**2, dim=-1) + ldj
 
 
-def subnet_fc(c_in, c_out, ndim=256, act=nn.LeakyReLU(), input_norm=False):
+class StandardCauchy(Independent):
+    def __init__(self, *event_shape: int, device=None, dtype=None, validate_args=True):
+        loc = torch.tensor(0.0, device=device, dtype=dtype).repeat(event_shape)
+        scale = torch.tensor(1.0, device=device, dtype=dtype).repeat(event_shape)
+
+        super().__init__(
+            Cauchy(loc, scale, validate_args=validate_args),
+            len(event_shape),
+            validate_args=validate_args,
+        )
+
+
+def cauchy_logprob(z, ldj):
+    diagc = StandardCauchy(z.shape[-1], device=z.device)
+    return diagc.log_prob(z) + ldj
+
+
+def subnet_fc(c_in, c_out, ndim=256, act=nn.GELU(), input_norm=False):
     return nn.Sequential(
         nn.LayerNorm(c_in) if input_norm else nn.Identity(),
         nn.Linear(c_in, ndim),
-        nn.LayerNorm(ndim),
         act,
-        nn.Linear(ndim, ndim),
         nn.LayerNorm(ndim),
-        act,
+        # nn.Linear(ndim, ndim),
+        # act,
+        # nn.LayerNorm(ndim),
         nn.Linear(ndim, c_out),
+        act,
     )
+    # return nn.Sequential(
+    #         nn.LayerNorm(c_in) if input_norm else nn.Identity(),
+    #         nn.Linear(c_in, ndim),
+    #         nn.LayerNorm(ndim),
+    #         act,
+    #         nn.Linear(ndim, ndim),
+    #         nn.LayerNorm(ndim),
+    #         act,
+    #         nn.Linear(ndim, c_out),
+    #     )
 
 
 class PatchFlow(torch.nn.Module):
@@ -56,6 +89,8 @@ class PatchFlow(torch.nn.Module):
         channels = input_size[0]
         self.device = config.device
 
+        self.base_distribution = StandardCauchy(channels, device=self.device)
+
         # Patch parameters
         self.local_patch_config = config.flow.local_patch_config
         self.global_patch_config = config.flow.global_patch_config
@@ -72,6 +107,7 @@ class PatchFlow(torch.nn.Module):
         self.context_embedding_size = config.flow.context_embedding_size
         self.use_global_context = config.flow.use_global_context
         self.global_embedding_size = config.flow.global_embedding_size
+        self.input_norm = config.flow.input_norm
 
         with torch.no_grad():
             # Pooling for local "patch" flow
@@ -105,9 +141,10 @@ class PatchFlow(torch.nn.Module):
                 self.norm_pooler,
                 self.conv_pooler,
             )
+
             # Spatial resolution of the global context patches
             _, c, h, w, d = self.global_pooler(torch.empty(1, *input_size)).shape
-            logging.info(f"Global Context Shape: {(c, h, w)}")
+            logging.info(f"Global Context Shape: {(h, w, d)}")
             self.global_attention = FlowAttentionBlock(
                 input_size=(c, h, w, d),
                 embed_dim=self.global_embedding_size,
@@ -116,7 +153,12 @@ class PatchFlow(torch.nn.Module):
             context_dims += self.context_embedding_size
 
         num_features = self.channels
-        self.flow = self.build_cflow_head(num_features, context_dims, self.num_blocks)
+        self.flow = self.build_cflow_head(
+            num_features,
+            context_dims,
+            input_norm=self.input_norm,
+            num_blocks=self.num_blocks,
+        )
         self.to(self.device)
 
     def init_weights(self):
@@ -136,7 +178,7 @@ class PatchFlow(torch.nn.Module):
                     if m.bias is not None:
                         nn.init.zeros_(m.bias.data)
 
-    def build_cflow_head(self, input_dim, conditioning_dim, num_blocks=2):
+    def build_cflow_head(self, input_dim, conditioning_dim, input_norm=False, num_blocks=2):
         coder = Ff.SequenceINN(input_dim)
         for k in range(num_blocks):
             # idx = int(k % 2 == 0)
@@ -144,7 +186,7 @@ class PatchFlow(torch.nn.Module):
                 Fm.AllInOneBlock,
                 cond=0,
                 cond_shape=(conditioning_dim,),
-                subnet_constructor=partial(subnet_fc, act=nn.LeakyReLU(0.2)),
+                subnet_constructor=partial(subnet_fc, input_norm=input_norm, act=nn.GELU()),
                 global_affine_type="SOFTPLUS",
                 permute_soft=True,
                 affine_clamping=1.9,
@@ -232,6 +274,8 @@ class PatchFlow(torch.nn.Module):
     def nll(self, zs, log_jac_dets):
         return -torch.mean(gaussian_logprob(zs, log_jac_dets))
 
+        # return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
+
     @torch.no_grad()
     def log_density(self, x, fast=True):
         self.eval()
@@ -239,15 +283,14 @@ class PatchFlow(torch.nn.Module):
         h, w, d = self.spatial_res
         zs, jacs = self.forward(x, fast=fast)
         logpx = gaussian_logprob(zs, jacs)
+        # logpx = self.base_distribution.log_prob(zs) + jacs
         logpx = rearrange(logpx, "(h w d) b -> b h w d", b=b, h=h, w=w, d=d)
         return logpx
 
     @staticmethod
     def stochastic_step(scores, x_batch, flow_model, opt=None, train=False, n_patches=1):
-        
         if train:
             flow_model.train()
-            opt.zero_grad(set_to_none=True)
         else:
             flow_model.eval()
 
@@ -274,8 +317,9 @@ class PatchFlow(torch.nn.Module):
 
             loss = flow_model.nll(z, ldj)
             local_loss += loss.item()
-            
+
             if train:
+                opt.zero_grad(set_to_none=True)
                 loss.backward()
                 opt.step()
 
