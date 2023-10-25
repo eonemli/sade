@@ -42,7 +42,7 @@ def restore_pretrained_weights(ckpt_dir, state, device):
     assert os.path.exists(ckpt_dir), f"Pretrain weights directory {ckpt_dir} does not exist"
 
     loaded_state = torch.load(ckpt_dir, map_location=device)
-    # state["model"].load_state_dict(loaded_state["model"], strict=False)
+    state["model_checkpoint_step"] = loaded_state["step"]
     dummy_ema = ExponentialMovingAverage(state["model"].parameters(), decay=0.999)
     dummy_ema.load_state_dict(loaded_state["ema"])
     dummy_ema.lazy_copy_to(state["model"].parameters())

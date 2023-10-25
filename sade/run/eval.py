@@ -12,7 +12,7 @@ from tqdm import tqdm
 from sade.models.ema import ExponentialMovingAverage
 from sade.ood_detection_helper import auxiliary_model_analysis
 
-from .utils import restore_checkpoint, restore_pretrained_weights
+from .utils import restore_pretrained_weights
 
 
 def evaluator(config, workdir):
@@ -33,6 +33,7 @@ def evaluator(config, workdir):
         model=score_model,
         step=0,
         ema=ExponentialMovingAverage(score_model.parameters(), decay=0),
+        model_checkpoint_step=0,
     )
     checkpoint_dir = os.path.join(workdir, "checkpoints")
     if config.eval.checkpoint_num > 0:
@@ -41,15 +42,19 @@ def evaluator(config, workdir):
     else:
         # Get the latest checkpoint
         checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint_*.pth"))
-        # print(checkpoint_paths)
+        if len(checkpoint_paths) > 0:
+            checkpoint_path = max(
+                checkpoint_paths, key=lambda x: int(re.search(r"_(\d+)\.pth", x).group(1))
+            )
+        else:  # Try to check for checkpoint-meta
+            checkpoint_path = os.path.join(checkpoint_dir, "checkpoint-meta.pth")
+            if not os.path.exists(checkpoint_path):
+                raise FileNotFoundError(
+                    f"Could not find checkpoint or checkpoint-meta at {os.path.dirname(checkpoint_path)}"
+                )
 
-        checkpoint_path = max(
-            checkpoint_paths, key=lambda x: int(re.search(r"_(\d+)\.pth", x).group(1))
-        )
-
-    # state = restore_pretrained_weights(checkpoint_path, state, config.device)
-    state = restore_checkpoint(checkpoint_path, state, config.device, raise_error=True)
-    checkpoint_step = state["step"]
+    state = restore_pretrained_weights(checkpoint_path, state, config.device)
+    checkpoint_step = state["model_checkpoint_step"]
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
     logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
