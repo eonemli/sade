@@ -40,6 +40,7 @@ def restore_checkpoint(ckpt_dir, state, device, raise_error=False):
 def restore_pretrained_weights(ckpt_dir, state, device):
     assert state["step"] == 0, "Can only load pretrained weights when starting a new run"
     assert os.path.exists(ckpt_dir), f"Pretrain weights directory {ckpt_dir} does not exist"
+    assert state['model'].training, "Model must be in training mode to appropriately load pretrained weights"
 
     loaded_state = torch.load(ckpt_dir, map_location=device)
     state["model_checkpoint_step"] = loaded_state["step"]
