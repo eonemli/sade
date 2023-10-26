@@ -10,7 +10,7 @@ from tqdm import tqdm
 from sade.configs.ve import biggan_config
 from sade.datasets.loaders import get_dataloaders
 from sade.models import registry
-from sade.msma.flow_model import build_nd_flow
+from sade.msma.flow_model import FlowModel, build_nd_flow
 from sade.run.utils import restore_pretrained_weights
 
 
@@ -24,28 +24,25 @@ class ScoreFlow(torch.nn.Module):
         b = x.shape[0]
         out = self.net(x, t).view(1, b, -1)
         out = torch.linalg.norm(out, dim=-1, keepdim=False)
-        z, ldj = self.flow(out)
-        out = -0.5 * torch.sum(z**2, dim=-1) + ldj
-        out = out.view(-1, 1)
-
+        out = -1 * self.flow(out)
         return out
 
 
 def run(config, workdir):
     # Initialize main model.
-    config.training.use_fp16 = True
+    config.training.use_fp16 = False
     n_timesteps = config.msma.n_timesteps = 10
     score_model = registry.create_model(config, distributed=False)
-    score_model = score_model.eval().requires_grad_(False)
     timesteps = registry.get_msma_sigmas(config)
 
     state = dict(model=score_model, step=0)
     pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
     state = restore_pretrained_weights(pretrain_dir, state, config.device)
+    score_model = score_model.eval()
 
-    flow_model = build_nd_flow(n_timesteps).cuda()
-    flow_model = flow_model.eval().requires_grad_(False)
-    flow_state = torch.load(f"{workdir}/msma/checkpoint.pth")
+    flow_model = FlowModel(config.msma.n_timesteps, device=config.device)
+    flow_model = flow_model.eval()
+    flow_state = torch.load(f"{workdir}/msma/checkpoint_10.pth")
     flow_model.load_state_dict(flow_state["model_state_dict"], strict=True)
     scoreflow = ScoreFlow(score_model, flow_model)
 
@@ -64,7 +61,8 @@ def run(config, workdir):
 
     _, inlier_ds, ood_ds = datasets
 
-    inlier_ds = torch.utils.data.Subset(inlier_ds, list(range(3)))
+    inlier_ds = torch.utils.data.Subset(inlier_ds, list(range(4)))
+    ood_ds = torch.utils.data.Subset(ood_ds, list(range(4)))
 
     x_inlier_attrs = []
     x_ood_attrs = []

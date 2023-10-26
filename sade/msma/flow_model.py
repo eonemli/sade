@@ -8,6 +8,7 @@ import FrEIA.modules as Fm
 import numpy as np
 import torch
 import torch.nn as nn
+from torch.distributions import LowRankMultivariateNormal
 from torch.utils import tensorboard
 from torchinfo import summary
 from tqdm import tqdm
@@ -48,11 +49,69 @@ def nll(zs, log_jac_dets):
     return -torch.mean(gaussian_logprob(zs, log_jac_dets))
 
 
+class MultivariateNormal(nn.Module):
+    def __init__(self, input_dims, low_rank_dims=128):
+        super().__init__()
+
+        self.cov_factor = nn.Parameter(torch.randn(input_dims, low_rank_dims), requires_grad=True)
+        self.cov_diag = nn.Parameter(torch.ones(input_dims), requires_grad=True)
+        self.mean = nn.Parameter(torch.zeros(input_dims), requires_grad=False)
+
+    def forward(self, x):
+        return LowRankMultivariateNormal(
+            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
+        ).log_prob(x)
+    
+    @property
+    def diag(self):
+        return torch.nn.functional.softplus(self.cov_diag) + 1e-5
+
+    @property
+    def covariance_matrix(self):
+        return LowRankMultivariateNormal(
+            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
+        ).covariance_matrix
+    
+class FlowModel(nn.Module):
+    def __init__(self, n_timesteps, num_blocks=20, device="cpu"):
+        super().__init__()
+        self.flow = build_nd_flow(n_timesteps, num_blocks)
+        self.base_distribution = MultivariateNormal(n_timesteps)
+        self.init_weights()
+        self.to(device)
+
+    def init_weights(self):
+        # Initialize weights with Xavier
+        linear_modules = list(filter(lambda m: isinstance(m, nn.Linear), self.flow.modules()))
+        total = len(linear_modules)
+        # pdb.set_trace()
+        for idx, m in enumerate(linear_modules):
+            
+            # Last layer gets init w/ zeros
+            if idx == total - 1:
+                nn.init.zeros_(m.weight.data)
+            else:
+                nn.init.xavier_uniform_(m.weight.data)
+
+            if m.bias is not None:
+                nn.init.zeros_(m.bias.data)
+
+    def forward(self, x):
+        z, ldj = self.flow(x)
+        return self.base_distribution(z) + ldj
+
+    @torch.inference_mode()
+    def score(self, x):
+        return -self.forward(x)
+    
+
+
+
 def train(config, workdir):
     kimg = config.flow.training_kimg
     log_tensorboard = config.flow.log_tensorboard
     lr = config.flow.lr
-    log_interval = 20  # config.training.log_freq
+    log_interval = 10  # config.training.log_freq
     device = config.device
 
     # Forcing the number of timesteps to be 10
@@ -71,7 +130,7 @@ def train(config, workdir):
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
 
     # Initialize flow model
-    flownet = build_nd_flow(config.msma.n_timesteps)
+    flownet = FlowModel(config.msma.n_timesteps, device=device)
 
     summary(flownet, depth=0, verbose=2)
 
@@ -119,23 +178,22 @@ def train(config, workdir):
     losses = []
     batch_sz = config.training.batch_size
     total_iters = kimg * 1000 // batch_sz + 1
-    progbar = tqdm(range(total_iters))
+    logging.info("Starting training for iters: %d", total_iters)
     niter = 0
     imgcount = 0
     best_val_loss = np.inf
     checkpoint_interval = 100
     loss_dict = {}
     flownet.train()
-    logging.info("Starting training for iters: %d", total_iters)
+    progbar = tqdm(range(total_iters))
     for niter in progbar:
         x_batch = next(train_iter)["image"].to(device)
         scores = scorer(x_batch)
-        zs, ldj = flownet(scores)
-        loss = nll(zs, ldj)
+        loss = -flownet(scores).mean()
 
         opt.zero_grad()
         loss.backward()
-        torch.nn.utils.clip_grad_norm_(flownet.parameters(), 2.0)
+        torch.nn.utils.clip_grad_norm_(flownet.parameters(), 5.0)
         opt.step()
 
         loss_dict["train_loss"] = loss.item()
@@ -151,8 +209,7 @@ def train(config, workdir):
             with torch.no_grad():
                 x = next(eval_iter)["image"].to(device)
                 x = scorer(x)
-                zs, ldj = flownet(scores)
-                val_loss = nll(zs, ldj)
+                val_loss = -flownet(scores).mean()
                 loss_dict["val_loss"] = val_loss.item()
 
             progbar.set_description(f"Val Loss: {val_loss:.4f}")
@@ -187,12 +244,11 @@ def train(config, workdir):
 
     # TODO: A few iterations on the val set to get the best model
     # Recall that Val set does not use augmentations
-    progbar = tqdm(range(1000))
+    progbar = tqdm(range(100))
     for niter in progbar:
         x_batch = next(eval_iter)["image"].to(device)
         scores = scorer(x_batch)
-        zs, ldj = flownet(scores)
-        loss = nll(zs, ldj)
+        loss = -flownet(scores).mean()
 
         opt.zero_grad()
         loss.backward()
@@ -232,8 +288,8 @@ if __name__ == "__main__":
 
     config = biggan_config.get_config()
     config.training.use_fp16 = True
-    config.training.batch_size = 8
-    config.training.batch_size = 8
-    config.flow.training_kimg = 10
+    config.training.batch_size = 32
+    config.eval.batch_size = 32
+    config.flow.training_kimg = 50
 
     train(config, workdir)
