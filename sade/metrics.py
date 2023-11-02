@@ -2,7 +2,10 @@
 
 import logging
 
+import ants
+import matplotlib.pyplot as plt
 import numpy as np
+import pandas as pd
 import skimage
 import skimage.filters as skf
 import torch
@@ -200,6 +203,22 @@ def segmentation_metrics(reference_ccp, segmentation_ccp):
     return metrics
 
 
+def erode_brain_masks(masks, radius=2):
+    eroded_masks = np.zeros_like(masks)
+    for i, m in enumerate(masks):
+        m = ants.from_numpy(m.float().numpy())
+        m = ants.morphology(
+            m,
+            operation="erode",
+            radius=radius,
+            mtype="binary",
+            shape="ball",
+            radius_is_parametric=True,
+        )
+        eroded_masks[i] = m.numpy()
+    return eroded_masks
+
+
 def remove_small_components(ccp, size=1, verbose=True):
     filtered_ccp = ccp.copy()
     n_components = len(np.unique(ccp)) - 1
@@ -218,7 +237,7 @@ def remove_small_components(ccp, size=1, verbose=True):
 
 
 def post_processing(
-    seg_mask,
+    pred_mask,
     brain_mask_rim=None,
     sigma=0,
     dilate=False,
@@ -227,7 +246,7 @@ def post_processing(
 ):
     # "Erosion" - Removing single voxel components
     seg_ccp, seg_components = skimage.measure.label(
-        seg_mask, background=0, return_num=True, connectivity=2
+        pred_mask, background=0, return_num=True, connectivity=2
     )
     seg_ccp, num_seg_components_post = remove_small_components(
         seg_ccp, size=min_component_size, verbose=verbose
@@ -260,43 +279,105 @@ def post_processing(
 
 def get_best_thresholds(
     anomaly_scores,
-    reference_masks,
-    brain_mask_rims,
+    label_masks,
+    brain_masks,
+    brain_mask_erode_radius=2,
+    min_component_size=3,
     num_thresholds_search=100,
-    start_percentile_thresh=0.95,
+    start_percentile_thresh=0.90,
     stop_percentile_thresh=0.9999,
 ):
     seg_thresholds = []
+    sample_thresh_dists = []
+
+    eroded_brain_masks = erode_brain_masks(brain_masks, brain_mask_erode_radius)
+    brain_mask_rims = (brain_masks * (~eroded_brain_masks)).astype(float)
 
     progress_bar = tqdm(range(len(anomaly_scores)), desc="# Processed: ?")
     for sample_idx in progress_bar:
         skull_mask = brain_mask_rims[sample_idx]
-        ref_mask = post_processing(reference_masks[sample_idx], skull_mask)
+        ref_mask = post_processing(
+            label_masks[sample_idx], skull_mask, min_component_size=min_component_size
+        )
         y_ref = torch.from_numpy(ref_mask)
         y_ref = (
             torch.nn.functional.one_hot(y_ref.long(), 2).unsqueeze(0).permute(0, 4, 1, 2, 3)
         )
-        seg = anomaly_scores[sample_idx]
+        pred = anomaly_scores[sample_idx]
 
         threshes = np.linspace(
-            np.quantile(seg, start_percentile_thresh),
-            np.quantile(seg, stop_percentile_thresh),
+            np.quantile(pred, start_percentile_thresh),
+            np.quantile(pred, stop_percentile_thresh),
             num_thresholds_search,
         )
 
         dists = []
-        for t in threshes:
-            seg_mask = seg > t
-            seg_mask = post_processing(seg_mask, brain_mask_rim=skull_mask, dilate=True)
-            y_pred = torch.from_numpy(seg_mask).float().unsqueeze(0)
+        threshes_loop = tqdm(threshes, desc="Searching best threshold:", leave=False)
+        for t in threshes_loop:
+            pred_mask = pred > t
+            pred_mask = post_processing(pred_mask, brain_mask_rim=skull_mask, dilate=True)
+            y_pred = torch.from_numpy(pred_mask).float().unsqueeze(0)
             y_pred = torch.nn.functional.one_hot(y_pred.long(), 2).permute(0, 4, 1, 2, 3)
-            d = compute_average_surface_distance(y_ref, y_pred, symmetric=False).item()
+            d = compute_average_surface_distance(y_ref, y_pred, symmetric=True).item()
+
+            if len(dists) > 10 and (d - np.mean(dists[-10:])) > 1:
+                break
+
             dists.append(d)
 
         dists = np.asarray(dists)
         best_thresh = threshes[dists.argmin()]
         seg_thresholds.append(best_thresh)
-
+        sample_thresh_dists.append(dists)
+        # print(f"Searched {len(dists)}, Found @ idx {dists.argmin()}: {dists[dists.argmin()]}]")
         progress_bar.set_description("# Processed: {:d}".format(sample_idx + 1))
 
-    return seg_thresholds
+    return seg_thresholds, sample_thresh_dists
+
+
+def compute_segmentation_metrics(pred_labels, true_labels):
+    metrics_df = pd.DataFrame(
+        columns=[
+            "TP",
+            "FP",
+            "FN",
+            "ground_truth_components",
+            "segmentation_components",
+            "hausdorff",
+            "mean_surf_dist",
+        ]
+    )
+
+    for sample_idx in range(len(pred_labels)):
+        pred = pred_labels[sample_idx]
+        lab = true_labels[sample_idx]
+
+        ref_ccp, ref_components = skimage.measure.label(
+            lab, background=0, return_num=True, connectivity=3
+        )
+        y_ref = torch.from_numpy(lab)
+        y_ref = (
+            torch.nn.functional.one_hot(y_ref.long(), 2).unsqueeze(0).permute(0, 4, 1, 2, 3)
+        )
+
+        seg_ccp, _ = skimage.measure.label(
+            pred, background=0, return_num=True, connectivity=3
+        )
+        y_pred = torch.from_numpy(pred).float().unsqueeze(0)
+        y_pred = torch.nn.functional.one_hot(y_pred.long(), 2).permute(0, 4, 1, 2, 3)
+
+        hauss_ref_to_pred = compute_hausdorff_distance(
+            y_ref, y_pred, include_background=False, directed=True, percentile=99
+        )
+        mean_surf_dist = compute_average_surface_distance(y_ref, y_pred, symmetric=False)
+        perf_dict = segmentation_metrics(ref_ccp, seg_ccp)
+
+        perf_dict["hausdorff"] = hauss_ref_to_pred.item()
+        perf_dict["mean_surf_dist"] = mean_surf_dist.item()
+        metrics_df.loc[sample_idx] = perf_dict
+
+    metrics_df["TPR"] = metrics_df.TP / metrics_df.ground_truth_components
+    metrics_df["FNR"] = metrics_df.FN / metrics_df.ground_truth_components
+    metrics_df["PPV"] = metrics_df.TP / (metrics_df.TP + metrics_df.FP)
+
+    return metrics_df

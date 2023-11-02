@@ -9,7 +9,7 @@ import torch
 import wandb
 from absl import app, flags
 from ml_collections.config_flags import config_flags
-from run.eval import evaluator
+from run.eval import evaluator, segmentation_evaluator
 from run.finetune import finetuner
 from run.flows import flow_evaluator, flow_trainer
 from run.train import trainer
@@ -23,7 +23,7 @@ flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
     None,
-    ["train", "finetune", "eval", "score", "sweep", "flow-train", "flow-eval"],
+    ["train", "finetune", "eval", "seg-eval", "score", "sweep", "flow-train", "flow-eval"],
     "Running mode: train or eval",
 )
 flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
@@ -96,6 +96,8 @@ def main(argv):
 
     elif FLAGS.mode == "eval":
         evaluator(FLAGS.config, FLAGS.workdir)
+    elif FLAGS.mode == "seg-eval":
+        segmentation_evaluator(FLAGS.config, FLAGS.workdir)
     elif FLAGS.mode == "flow-train":
         # Create the working directory
         os.makedirs(FLAGS.workdir, exist_ok=True)

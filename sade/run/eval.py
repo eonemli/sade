@@ -9,6 +9,12 @@ import torch
 from datasets.loaders import get_dataloaders
 from tqdm import tqdm
 
+from sade.metrics import (
+    compute_segmentation_metrics,
+    erode_brain_masks,
+    get_best_thresholds,
+    post_processing,
+)
 from sade.models.ema import ExponentialMovingAverage
 from sade.ood_detection_helper import auxiliary_model_analysis
 
@@ -122,3 +128,81 @@ def evaluator(config, workdir):
 
     # Print results
     print(results["GMM"]["metrics"])
+
+
+def segmentation_evaluator(config, workdir):
+    config.device = torch.device("cpu")
+    (_, inlier_ds, ood_ds), _ = get_dataloaders(
+        config,
+        evaluation=True,
+        ood_eval=True,
+    )
+
+    x_ood = []
+    x_ood_labels = []
+    for x in ood_ds:
+        x_ood.append(x["image"])
+        x_ood_labels.append(x["label"])
+        break
+
+    x_ood = torch.cat(x_ood)
+    x_ood_labels = torch.cat(x_ood_labels)
+    ood_brain_masks = (x_ood != -1.0).sum(dim=1).bool()
+
+    experiment = config.eval.experiment
+    experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    scores_path = f"{workdir}/{experiment_name}_results.npz"
+    assert os.path.exists(scores_path), f"Scores not found at {scores_path}"
+    data = np.load(scores_path, allow_pickle=True)
+    x_ood_scores = data["ood"]
+
+    ### Run the segmentation evaluation pipeline
+
+    # Ensure same spatial size
+    anomaly_scores = (
+        torch.nn.functional.interpolate(
+            torch.from_numpy(x_ood_scores).unsqueeze(1), size=x_ood.shape[2:]
+        )
+        .squeeze(1)
+        .numpy()
+    )
+    anomaly_scores = anomaly_scores * ood_brain_masks
+    true_labels = x_ood_labels.sum(1).cpu().numpy() > 0
+    true_labels_masked = true_labels * ood_brain_masks
+
+    # Computing Hausdorff distance to determine bets thresholds for segmentation
+    best_seg_thresholds, _ = get_best_thresholds(
+        anomaly_scores, true_labels_masked, ood_brain_masks
+    )
+
+    post_proc_preds = []
+    post_proc_labels = []
+
+    eroded_brain_masks = erode_brain_masks(ood_brain_masks)
+    brain_mask_rims = (ood_brain_masks * (~eroded_brain_masks)).astype(float)
+    for sample_idx, thresh in enumerate(best_seg_thresholds):
+        skull_mask = brain_mask_rims[sample_idx]
+        pred_scores = anomaly_scores[sample_idx]
+        best_thresh = best_seg_thresholds[sample_idx]
+        pred = post_processing(
+            pred_scores > best_thresh,
+            skull_mask,
+            dilate=True,
+        )
+        ref_mask = post_processing(
+            true_labels[sample_idx], skull_mask, min_component_size=3
+        )
+        post_proc_preds.append(pred)
+        post_proc_labels.append(ref_mask)
+
+    # Save the predictions
+    post_proc_preds = np.stack(post_proc_preds)
+    post_proc_labels = np.stack(post_proc_labels)
+    np.savez_compressed(
+        f"{workdir}/{experiment_name}_segs.npz",
+        {"preds": post_proc_preds, "labels": post_proc_labels},
+    )
+
+    metrics_df = compute_segmentation_metrics(post_proc_preds, post_proc_labels)
+    metrics_df.to_csv(f"{workdir}/{experiment_name}_seg_eval.csv")
+    print(metrics_df.dropna().describe())
