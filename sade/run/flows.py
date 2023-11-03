@@ -44,7 +44,9 @@ def flow_trainer(config, workdir):
         os.path.join(config.training.pretrain_dir, "..", "checkpoints", "checkpoint_*.pth")
     )
     latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    state = restore_checkpoint(latest_checkpoint_path, state, config.device)
+    state = restore_checkpoint(
+        latest_checkpoint_path, state, config.device, raise_error=True
+    )
     ema.store(score_model.parameters())
     ema.copy_to(score_model.parameters())
 
@@ -145,7 +147,6 @@ def flow_trainer(config, workdir):
             p_ema.copy_(p_net.detach().lerp(p_ema, ema_beta))
 
         if niter % log_interval == 0:
-            torch.cuda.empty_cache()
             flownet.eval()
 
             with torch.no_grad():
@@ -200,15 +201,14 @@ def flow_evaluator(config, workdir):
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
-    state = dict(model=score_model, ema=ema, step=0)
+    state = dict(model=score_model, ema=ema, step=0, model_checkpoint_step=0)
 
     # Get the score model checkpoint from pretrained run
     # checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
     checkpoint_dir = os.path.join(config.training.pretrain_dir, "..", "checkpoints")
     checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint_*.pth"))
     latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    state = restore_checkpoint(latest_checkpoint_path, state, config.device)
-    # state = restore_pretrained_weights(checkpoint_paths, state, config.device)
+    state = restore_pretrained_weights(latest_checkpoint_path, state, config.device)
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
 
