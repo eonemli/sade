@@ -18,19 +18,21 @@ class ScoreFlow(torch.nn.Module):
     def __init__(self, net, flow):
         super().__init__()
         self.net = net
-        self.flow = flow
+        self.flow_model = flow
 
     def forward(self, x, t):
         b = x.shape[0]
         out = self.net(x, t).view(1, b, -1)
         out = torch.linalg.norm(out, dim=-1, keepdim=False)
-        out = -1 * self.flow(out)
+        z, ldj = self.flow_model.flow(out)
+        out = self.flow_model.base_distribution(z) + ldj
+        out = -1 * out.view(-1, 1)
         return out
 
 
 def run(config, workdir):
     # Initialize main model.
-    config.training.use_fp16 = False
+    # config.training.use_fp16 = False
     n_timesteps = config.msma.n_timesteps = 10
     score_model = registry.create_model(config, distributed=False)
     timesteps = registry.get_msma_sigmas(config)
@@ -42,7 +44,7 @@ def run(config, workdir):
 
     flow_model = FlowModel(config.msma.n_timesteps, device=config.device)
     flow_model = flow_model.eval()
-    flow_state = torch.load(f"{workdir}/msma/checkpoint_10.pth")
+    flow_state = torch.load(f"{workdir}/msma/checkpoint.pth")
     flow_model.load_state_dict(flow_state["model_state_dict"], strict=True)
     scoreflow = ScoreFlow(score_model, flow_model)
 
@@ -62,7 +64,7 @@ def run(config, workdir):
     _, inlier_ds, ood_ds = datasets
 
     inlier_ds = torch.utils.data.Subset(inlier_ds, list(range(4)))
-    ood_ds = torch.utils.data.Subset(ood_ds, list(range(4)))
+    # ood_ds = torch.utils.data.Subset(ood_ds, list(range(4)))
 
     x_inlier_attrs = []
     x_ood_attrs = []
