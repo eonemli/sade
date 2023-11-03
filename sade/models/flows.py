@@ -7,7 +7,13 @@ import FrEIA.modules as Fm
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
-from torch.distributions import Cauchy, Independent, Normal
+from torch.distributions import (
+    Cauchy,
+    Independent,
+    LogNormal,
+    LowRankMultivariateNormal,
+    Normal,
+)
 
 from sade.models.layers import PositionalEncoding3D, SpatialNorm3D
 from sade.models.layerspp import FlowAttentionBlock, get_conv_layer
@@ -21,45 +27,78 @@ def gaussian_logprob(z, ldj):
     return _GCONST_ - 0.5 * torch.sum(z**2, dim=-1) + ldj
 
 
-class StandardCauchy(Independent):
-    def __init__(self, *event_shape: int, device=None, dtype=None, validate_args=True):
+class StandardDistribution(Independent):
+    SUPPORTED_DISTRIBUTIONS = {
+        "cauchy": Cauchy,
+        "normal": Normal,
+        # This will require a speecial trnasform at the end of the flow
+        # An exponential will do
+        # "lognormal": LogNormal
+    }
+
+    def __init__(
+        self,
+        base_distribution_name,
+        *event_shape: int,
+        device=None,
+        dtype=None,
+        validate_args=True,
+    ):
+        assert (
+            base_distribution_name in self.SUPPORTED_DISTRIBUTIONS.keys()
+        ), f"Base distribution {base_distribution_name} not supported.Supported distributions are {self.SUPPORTED_DISTRIBUTIONS.keys()}"
+
         loc = torch.tensor(0.0, device=device, dtype=dtype).repeat(event_shape)
         scale = torch.tensor(1.0, device=device, dtype=dtype).repeat(event_shape)
+        self.base = self.SUPPORTED_DISTRIBUTIONS[base_distribution_name]
 
         super().__init__(
-            Cauchy(loc, scale, validate_args=validate_args),
+            self.base(loc, scale, validate_args=validate_args),
             len(event_shape),
             validate_args=validate_args,
         )
 
 
-def cauchy_logprob(z, ldj):
-    diagc = StandardCauchy(z.shape[-1], device=z.device)
-    return diagc.log_prob(z) + ldj
+class MultivariateNormal(nn.Module):
+    def __init__(self, input_dims, low_rank_dims=256):
+        super().__init__()
+
+        self.cov_factor = nn.Parameter(
+            torch.randn(input_dims, low_rank_dims), requires_grad=True
+        )
+        self.cov_diag = nn.Parameter(torch.ones(input_dims), requires_grad=True)
+        self.mean = nn.Parameter(torch.zeros(input_dims), requires_grad=False)
+
+    @property
+    def diag(self):
+        return torch.nn.functional.softplus(self.cov_diag) + 1e-5
+
+    @property
+    def covariance_matrix(self):
+        return LowRankMultivariateNormal(
+            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
+        ).covariance_matrix
+
+    def forward(self, x):
+        return LowRankMultivariateNormal(
+            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
+        ).log_prob(x)
+
+    def log_prob(self, x):
+        return self(x)
 
 
 def subnet_fc(c_in, c_out, ndim=256, act=nn.GELU(), input_norm=False):
     return nn.Sequential(
         nn.LayerNorm(c_in) if input_norm else nn.Identity(),
         nn.Linear(c_in, ndim),
-        act,
         nn.LayerNorm(ndim),
-        # nn.Linear(ndim, ndim),
-        # act,
-        # nn.LayerNorm(ndim),
-        nn.Linear(ndim, c_out),
         act,
+        nn.Linear(ndim, ndim),
+        nn.LayerNorm(ndim),
+        act,
+        nn.Linear(ndim, c_out),
     )
-    # return nn.Sequential(
-    #         nn.LayerNorm(c_in) if input_norm else nn.Identity(),
-    #         nn.Linear(c_in, ndim),
-    #         nn.LayerNorm(ndim),
-    #         act,
-    #         nn.Linear(ndim, ndim),
-    #         nn.LayerNorm(ndim),
-    #         act,
-    #         nn.Linear(ndim, c_out),
-    #     )
 
 
 class PatchFlow(torch.nn.Module):
@@ -89,7 +128,14 @@ class PatchFlow(torch.nn.Module):
         channels = input_size[0]
         self.device = config.device
 
-        self.base_distribution = StandardCauchy(channels, device=self.device)
+        # Base distribution
+        dist_name = config.flow.base_distribution
+        if dist_name == "multivariate_normal":
+            self.base_distribution = MultivariateNormal(channels)
+        else:
+            self.base_distribution = StandardDistribution(
+                dist_name, channels, device=self.device
+            )
 
         # Patch parameters
         self.local_patch_config = config.flow.local_patch_config
@@ -159,16 +205,26 @@ class PatchFlow(torch.nn.Module):
             input_norm=self.input_norm,
             num_blocks=self.num_blocks,
         )
+
+        self.init_weights()
         self.to(self.device)
 
     def init_weights(self):
         # Initialize weights with Xavier
-        for m in self.flow.modules():
-            if isinstance(m, nn.Conv2d) or isinstance(m, nn.Linear):
-                # print(m)
+        linear_modules = list(
+            filter(lambda m: isinstance(m, nn.Linear), self.flow.modules())
+        )
+        total = len(linear_modules)
+        # pdb.set_trace()
+        for idx, m in enumerate(linear_modules):
+            # Last layer gets init w/ zeros
+            if idx == total - 1:
+                nn.init.zeros_(m.weight.data)
+            else:
                 nn.init.xavier_uniform_(m.weight.data)
-                if m.bias is not None:
-                    nn.init.zeros_(m.bias.data)
+
+            if m.bias is not None:
+                nn.init.zeros_(m.bias.data)
 
         if self.use_global_context:
             for m in self.global_attention.modules():
@@ -272,9 +328,9 @@ class PatchFlow(torch.nn.Module):
         return zs, jacs
 
     def nll(self, zs, log_jac_dets):
-        return -torch.mean(gaussian_logprob(zs, log_jac_dets))
+        # return -torch.mean(gaussian_logprob(zs, log_jac_dets))
 
-        # return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
+        return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
 
     @torch.no_grad()
     def log_density(self, x, fast=True):
@@ -282,8 +338,8 @@ class PatchFlow(torch.nn.Module):
         b = x.shape[0]
         h, w, d = self.spatial_res
         zs, jacs = self.forward(x, fast=fast)
-        logpx = gaussian_logprob(zs, jacs)
-        # logpx = self.base_distribution.log_prob(zs) + jacs
+        # logpx = gaussian_logprob(zs, jacs)
+        logpx = self.base_distribution.log_prob(zs) + jacs
         logpx = rearrange(logpx, "(h w d) b -> b h w d", b=b, h=h, w=w, d=d)
         return logpx
 

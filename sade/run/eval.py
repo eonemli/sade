@@ -143,7 +143,6 @@ def segmentation_evaluator(config, workdir):
     for x in ood_ds:
         x_ood.append(x["image"])
         x_ood_labels.append(x["label"])
-        break
 
     x_ood = torch.cat(x_ood)
     x_ood_labels = torch.cat(x_ood_labels)
