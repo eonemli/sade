@@ -14,9 +14,7 @@ def get_config():
     training.reduce_mean = True
     training.batch_size = 8
     training.n_iters = 1500001
-    training.pretrain_dir = (
-        "/ASD/ahsan_projects/braintypicality/workdir/cuda_opt/learnable/checkpoints-meta/"
-    )
+    training.pretrained_checkpoint = "/ASD/ahsan_projects/braintypicality/workdir/cuda_opt/learnable/checkpoints/checkpoint_150.pth"
 
     data = config.data
     data.image_size = (96, 112, 80)
@@ -25,7 +23,6 @@ def get_config():
     data.cache_rate = 0.0
     data.dir_path = "/DATA/Users/amahmood/braintyp/processed_v2/"
     data.splits_dir = "/codespace/sade/sade/datasets/brains/"
-    data.ood_ds = "lesion_load_20"
 
     evaluate = config.eval
     evaluate.sample_size = 8
