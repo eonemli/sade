@@ -199,7 +199,7 @@ def segmentation_evaluator(config, workdir):
     post_proc_labels = np.stack(post_proc_labels)
     np.savez_compressed(
         f"{workdir}/{experiment_name}_segs.npz",
-        {"preds": post_proc_preds, "labels": post_proc_labels},
+        **{"preds": post_proc_preds, "labels": post_proc_labels},
     )
 
     metrics_df = compute_segmentation_metrics(post_proc_preds, post_proc_labels)
