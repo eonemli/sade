@@ -128,26 +128,40 @@ def restorer(config, workdir):
         corrector=config.sampling.corrector,
         snr=config.sampling.snr,
     )
-    NUM_EVALS = 1
+    NUM_EVALS = 10
     num_forward_steps = sde.N // 4  # Following AnoDDPM
 
-    x_inlier_restored = []
-    x_ood_restored = []
+    x_inlier_results = {}
+    x_ood_results = {}
 
-    for res_arr, ds in zip([x_inlier_restored, x_ood_restored], [inlier_ds, ood_ds]):
+    for result_dict, ds in zip([x_inlier_results, x_ood_results], [inlier_ds, ood_ds]):
+        result_dict["imputed_images"] = []
+        result_dict["errors"] = []
+
         for x in tqdm(ds):
             x = x["image"].to(config.device)
-
+            x_restored = torch.zeros_like(x)
             for _ in range(NUM_EVALS):
-                x_restored = restoration_fn(score_model, x, num_forward_steps)
-            #     x_errors.append(torch.abs(x_inpainted - x).sum(1).cpu())
-            # x_err = torch.stack(x_errors).numpy()
-            res_arr.append(x_restored)
-            break
+                x_restored += restoration_fn(score_model, x, num_forward_steps)
+            x_restored /= NUM_EVALS
+            x_error = torch.abs(x_restored - x).sum(1)
+            result_dict["errors"].append(x_error.cpu().numpy())
+            result_dict["imputed_images"].append(x_restored.cpu().numpy())
+
+    x_inlier_errors = np.concatenate(x_inlier_results["errors"])
+    x_ood_errors = np.concatenate(x_ood_results["errors"])
+
+    x_inlier_imputed = np.concatenate(x_inlier_results["imputed_images"])
+    x_ood_imputed = np.concatenate(x_ood_results["imputed_images"])
 
     np.savez_compressed(
         f"{save_dir}/{experiment_name}_results.npz",
-        **{"inliers": x_inlier_restored, "ood": x_ood_restored},
+        **{
+            "inliers": x_inlier_errors,
+            "ood": x_ood_errors,
+            "inlier_imputed": x_inlier_imputed,
+            "ood_imputed": x_ood_imputed,
+        },
     )
 
 
@@ -158,7 +172,7 @@ if __name__ == "__main__":
 
     config = biggan_config.get_config()
     config.training.use_fp16 = True
-    config.eval.batch_size = 4
+    config.eval.batch_size = 64
     experiment = config.eval.experiment
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
