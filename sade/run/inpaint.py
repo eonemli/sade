@@ -107,7 +107,7 @@ def get_pc_inpainter(
             # Initial sample
             x = data * mask + sde.prior_sampling(data.shape).to(data.device) * (1.0 - mask)
             timesteps = torch.linspace(sde.T, eps, sde.N)
-            for i in tqdm(range(sde.N)):
+            for i in tqdm(range(0, sde.N, 2)):
                 t = timesteps[i]
                 x, x_mean = corrector_inpaint_update_fn(model, data, mask, x, t)
                 x, x_mean = projector_inpaint_update_fn(model, data, mask, x, t)
@@ -178,38 +178,45 @@ def inpainter(config, workdir):
     CHECKERBOARD_MASK = checkerboard_mask(shape, patch_size=PATCH_SIZE)
     CHECKERBOARD_MASK = CHECKERBOARD_MASK.unsqueeze(0).to(config.device)
 
-    NUM_EVALS = 1
+    NUM_EVALS = 10
     # aggregate_op = torch.median
 
-    x_inlier_inpainted_errors = []
-    x_ood_inpainted_errors = []
+    x_inlier_results = {}
+    x_ood_results = {}
 
-    for res_arr, ds in zip(
-        [x_inlier_inpainted_errors, x_ood_inpainted_errors], [inlier_ds, ood_ds]
-    ):
+    for result_dict, ds in zip([x_inlier_results, x_ood_results], [inlier_ds, ood_ds]):
+        result_dict["errors"] = []
+        result_dict["imputed_images"] = []
+
         for x in tqdm(ds):
             x = x["image"].to(config.device)
             brain_mask = (x != -1).sum(1, keepdims=True) > 0
             # Produce a 3D mask with checkerboard pattern of a given size
             # m = get_checkerboard_mask(x.shape).to(config.device)
             m = CHECKERBOARD_MASK.repeat(x.shape[0], 1, 1, 1, 1)
-            x_errors = []
+            x_inpainted = torch.zeros_like(x)
             for _ in range(NUM_EVALS):
-                x_inpainted = inpainting_fn(score_model, x, brain_mask * m)
+                x_inpainted += inpainting_fn(score_model, x, brain_mask * m)
                 # Invert each round
                 m = 1 - m
-            #     x_errors.append(torch.abs(x_inpainted - x).sum(1).cpu())
-            # x_err = torch.stack(x_errors).numpy()
-            # x_err = np.median(x_err, axis=0)
-            res_arr.append(x_inpainted)
-            break
+            x_inpainted /= NUM_EVALS
+            x_error = torch.abs(x_inpainted - x).sum(1)
+            result_dict["errors"].append(x_error.cpu().numpy())
+            result_dict["imputed_images"].append(x_inpainted.cpu().numpy())
 
-    x_inlier_inpainted_errors = np.concatenate(x_inlier_inpainted_errors)
-    x_ood_inpainted_errors = np.concatenate(x_ood_inpainted_errors)
-    # print(x_inlier_inpainted_errors.shape, x_ood_inpainted_errors.shape)
+    x_inlier_errors = np.concatenate(x_inlier_results["errors"])
+    x_ood_errors = np.concatenate(x_ood_results["errors"])
+    x_inlier_imputed = np.concatenate(x_inlier_results["imputed_images"])
+    x_ood_imputed = np.concatenate(x_ood_results["imputed_images"])
+
     np.savez_compressed(
-        f"{save_dir}/checker_{experiment_name}_results.npz",
-        **{"inliers": x_inlier_inpainted_errors, "ood": x_ood_inpainted_errors},
+        f"{save_dir}/{experiment_name}_results.npz",
+        **{
+            "inliers": x_inlier_errors,
+            "ood": x_ood_errors,
+            "inlier_imputed": x_inlier_imputed,
+            "ood_imputed": x_ood_imputed,
+        },
     )
 
     return
@@ -222,7 +229,7 @@ if __name__ == "__main__":
 
     config = biggan_config.get_config()
     config.training.use_fp16 = True
-    config.eval.batch_size = 4
+    config.eval.batch_size = 96
     experiment = config.eval.experiment
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
