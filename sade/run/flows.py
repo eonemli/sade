@@ -38,18 +38,9 @@ def flow_trainer(config, workdir):
     state = dict(model=score_model, ema=ema, step=0)
 
     # Get the score model checkpoint from pretrained run
-    # checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-    # state = restore_pretrained_weights(checkpoint_paths, state, config.device)
-    checkpoint_paths = glob.glob(
-        os.path.join(config.training.pretrain_dir, "..", "checkpoints", "checkpoint_*.pth")
+    state = restore_pretrained_weights(
+        config.training.pretrained_checkpoint, state, config.device
     )
-    latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    state = restore_checkpoint(
-        latest_checkpoint_path, state, config.device, raise_error=True
-    )
-    ema.store(score_model.parameters())
-    ema.copy_to(score_model.parameters())
-
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
 
@@ -204,11 +195,10 @@ def flow_evaluator(config, workdir):
     state = dict(model=score_model, ema=ema, step=0, model_checkpoint_step=0)
 
     # Get the score model checkpoint from pretrained run
-    # checkpoint_paths = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-    checkpoint_dir = os.path.join(config.training.pretrain_dir, "..", "checkpoints")
-    checkpoint_paths = glob.glob(os.path.join(checkpoint_dir, "checkpoint_*.pth"))
-    latest_checkpoint_path = max(checkpoint_paths, key=lambda x: int(x.split("_")[-1][1]))
-    state = restore_pretrained_weights(latest_checkpoint_path, state, config.device)
+    state = restore_pretrained_weights(
+        config.training.pretrained_checkpoint, state, config.device
+    )
+
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
 
