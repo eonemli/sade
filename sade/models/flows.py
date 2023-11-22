@@ -4,6 +4,7 @@ from functools import partial
 
 import FrEIA.framework as Ff
 import FrEIA.modules as Fm
+import normflows as nf
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
@@ -130,7 +131,15 @@ class PatchFlow(torch.nn.Module):
 
         # Base distribution
         dist_name = config.flow.base_distribution
-        if dist_name == "multivariate_normal":
+        if dist_name == "gaussian_mixture":
+            self.base_distribution = nf.distributions.base.GaussianMixture(
+                n_modes=10, dim=channels, trainable=True
+            )
+        elif dist_name == "normflow":
+            self.base_distribution = nf.distributions.base.DiagGaussian(
+                channels, trainable=False
+            )
+        elif dist_name == "multivariate_normal":
             self.base_distribution = MultivariateNormal(channels)
         else:
             self.base_distribution = StandardDistribution(
@@ -199,15 +208,16 @@ class PatchFlow(torch.nn.Module):
             context_dims += self.context_embedding_size
 
         num_features = self.channels
-        self.flow = self.build_cflow_head(
+        self.flow = self.build_flow_head(
             num_features,
             context_dims,
-            input_norm=self.input_norm,
+            # input_norm=self.input_norm,
             num_blocks=self.num_blocks,
         )
 
         self.init_weights()
         self.to(self.device)
+        self.flow.to(self.device)
 
     def init_weights(self):
         # Initialize weights with Xavier
@@ -250,6 +260,36 @@ class PatchFlow(torch.nn.Module):
 
         return coder
 
+    def build_flow_head(self, input_dim, conditioning_dim, num_blocks=2):
+        num_res_blocks = 2
+        hidden_units = 256
+        flows = []
+        for i in range(num_blocks):
+            flows += [
+                nf.flows.CoupledRationalQuadraticSpline(
+                    input_dim,
+                    num_res_blocks,
+                    hidden_units,
+                    num_context_channels=conditioning_dim,
+                    # activation=nn.LeakyReLU(0.2),
+                )
+            ]
+            flows += [nf.flows.LULinearPermute(input_dim)]
+
+        flows.append(
+            nf.flows.MaskedAffineAutoregressive(
+                input_dim,
+                hidden_features=hidden_units,
+                num_blocks=1,
+                context_features=conditioning_dim,
+            )
+        )
+
+        # Construct flow model
+        nfm = nf.ConditionalNormalizingFlow(q0=self.base_distribution, flows=flows)
+
+        return nfm
+
     def forward(self, x, return_attn=False, fast=True):
         B, C = x.shape[0], x.shape[1]
         x_norm = self.local_pooler(x)
@@ -278,19 +318,20 @@ class PatchFlow(torch.nn.Module):
                 if self.use_global_context:
                     c = torch.cat([c, global_context], dim=1)
 
-                z, ldj = self.flow(
+                z, ldj = self.flow.inverse_and_log_det(
                     patch_feature,
-                    c=[c],
+                    context=c,
                 )
                 zs.append(z)
                 log_jac_dets.append(ldj)
                 c = c.cpu()
 
-        zs = torch.cat(zs, dim=0).reshape(self.num_patches, B, C)
-        log_jac_dets = torch.cat(log_jac_dets, dim=0).reshape(self.num_patches, B)
+        # Use einops to concatenate all patches
+        zs = rearrange(zs, "n b c -> (n b) c")
+        log_jac_dets = rearrange(log_jac_dets, "n b -> (n b)")
 
-        if return_attn:
-            return zs, log_jac_dets
+        # zs = torch.cat(zs, dim=0).reshape(self.num_patches, B, C)
+        # log_jac_dets = torch.cat(log_jac_dets, dim=0).reshape(self.num_patches, B)
 
         return zs, log_jac_dets
 
@@ -316,20 +357,18 @@ class PatchFlow(torch.nn.Module):
             p = rearrange(p, "n b c -> (n b) c")
 
             c = torch.cat([ctx, gc], dim=1)
-            z, ldj = self.flow(p, c=[c])
+            z, ldj = self.flow.inverse_and_log_det(p, context=c)
 
             zs.append(z)
             jacs.append(ldj)
 
-            ctx = ctx.cpu()
-            gc = gc.cpu()
-            p = p.cpu()
+            del ctx, gc, p
 
         return zs, jacs
 
     def nll(self, zs, log_jac_dets):
         # return -torch.mean(gaussian_logprob(zs, log_jac_dets))
-
+        # pdb.set_trace()
         return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
 
     @torch.no_grad()
@@ -338,9 +377,10 @@ class PatchFlow(torch.nn.Module):
         b = x.shape[0]
         h, w, d = self.spatial_res
         zs, jacs = self.forward(x, fast=fast)
+        # pdb.set_trace()
         # logpx = gaussian_logprob(zs, jacs)
         logpx = self.base_distribution.log_prob(zs) + jacs
-        logpx = rearrange(logpx, "(h w d) b -> b h w d", b=b, h=h, w=w, d=d)
+        logpx = rearrange(logpx, "(h w d b) -> b h w d", b=b, h=h, w=w, d=d)
         return logpx
 
     @staticmethod
@@ -366,9 +406,9 @@ class PatchFlow(torch.nn.Module):
                 # Concatenate global context to local context
                 context_vector = torch.cat([context_vector, global_context], dim=1)
 
-            z, ldj = flow_model.flow(
+            z, ldj = flow_model.flow.inverse_and_log_det(
                 patch_feature,
-                c=[context_vector],
+                context=context_vector,
             )
 
             loss = flow_model.nll(z, ldj)

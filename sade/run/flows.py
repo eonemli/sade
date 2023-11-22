@@ -120,7 +120,8 @@ def flow_trainer(config, workdir):
     loss_dict = {}
 
     for niter in progbar:
-        x_batch = next(train_iter)["image"].to(device)
+        x_batch = next(train_iter)["image"]
+        x_batch = torch.tensor(x_batch).to(device)
         scores = scorer(x_batch)
 
         loss_dict["train_loss"] = flow_train_step(scores, x_batch)
@@ -222,6 +223,8 @@ def flow_evaluator(config, workdir):
     logging.info(
         f"Loaded flow model at iter={state_dict['kimg']}, val_loss={state_dict['val_loss']}"
     )
+    # Use user-specified chunk size for evaluation
+    flownet.patch_batch_size = config.flow.patch_batch_size
 
     # Create save directory
     checkpoint_step = state_dict["kimg"]
