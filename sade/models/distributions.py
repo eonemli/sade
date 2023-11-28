@@ -8,10 +8,10 @@ from torch.distributions import (
 
 
 class MVN(nn.Module):
-    def __init__(self, input_dims):
+    def __init__(self, n_features):
         super().__init__()
 
-        self.D = D = input_dims
+        self.D = D = n_features
         lower_tril_numel = D * (D + 1) // 2 - D
         self.cov_factor = nn.Parameter(torch.randn(lower_tril_numel), requires_grad=True)
         self.cov_diag = nn.Parameter(torch.ones(D), requires_grad=True)
@@ -89,14 +89,14 @@ class GMM(nn.Module):
 
 
 class LowRankMVN(nn.Module):
-    def __init__(self, input_dims, low_rank_dims=256):
+    def __init__(self, n_features, low_rank_dims=256):
         super().__init__()
 
         self.cov_factor = nn.Parameter(
-            torch.randn(input_dims, low_rank_dims), requires_grad=True
+            torch.randn(n_features, low_rank_dims), requires_grad=True
         )
-        self.cov_diag = nn.Parameter(torch.ones(input_dims), requires_grad=True)
-        self.mean = nn.Parameter(torch.zeros(input_dims), requires_grad=False)
+        self.cov_diag = nn.Parameter(torch.ones(n_features), requires_grad=True)
+        self.mean = nn.Parameter(torch.zeros(n_features), requires_grad=False)
 
     @property
     def diag(self):
