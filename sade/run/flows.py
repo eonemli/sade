@@ -142,8 +142,8 @@ def flow_trainer(config, workdir):
             flownet.eval()
 
             with torch.no_grad():
-                x = next(eval_iter)["image"].to(device)
-                x = scorer(x)
+                x_batch = next(eval_iter)["image"].to(device)
+                scores = scorer(x_batch)
                 val_loss = flow_eval_step(scores, x_batch)
                 loss_dict["val_loss"] = val_loss
 

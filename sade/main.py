@@ -68,6 +68,7 @@ def main(argv):
             config=FLAGS.config.to_dict(),
             resume="allow",
             sync_tensorboard=True,
+            settings=wandb.Settings(code_dir="."),
         ):
             config = ml_collections.ConfigDict(wandb.config)
 
@@ -84,6 +85,7 @@ def main(argv):
             config=FLAGS.config.to_dict(),
             resume="allow",
             sync_tensorboard=False,
+            settings=wandb.Settings(code_dir="."),
         ):
             config = ml_collections.ConfigDict(wandb.config)
 
@@ -114,6 +116,7 @@ def main(argv):
             config=FLAGS.config.to_dict(),
             resume="allow",
             sync_tensorboard=True,
+            settings=wandb.Settings(code_dir="."),
         ):
             config = ml_collections.ConfigDict(wandb.config)
 

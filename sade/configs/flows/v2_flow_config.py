@@ -6,11 +6,16 @@ from sade.configs.ve.biggan_config import get_config as get_default_config
 def get_config():
     config = get_default_config()
 
-    config.training.batch_size = 64
+    config.training.batch_size = 32
     config.training.log_freq = 5
-    config.training.use_fp16 = True
+    config.training.use_fp16 = False
 
-    config.eval.batch_size = 64
+    eval = config.eval
+    eval.batch_size = 32
+    experiment = eval.experiment
+    experiment.train = "abcd-val"
+    experiment.inlier = "abcd-test"
+    experiment.ood = "lesion_load_20"
 
     # flow-model
     flow = config.flow
