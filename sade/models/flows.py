@@ -13,6 +13,7 @@ from torch.distributions import (
     Independent,
     LogNormal,
     LowRankMultivariateNormal,
+    MultivariateNormal,
     Normal,
 )
 
@@ -60,7 +61,7 @@ class StandardDistribution(Independent):
         )
 
 
-class MultivariateNormal(nn.Module):
+class LowRankMVN(nn.Module):
     def __init__(self, input_dims, low_rank_dims=256):
         super().__init__()
 
@@ -84,6 +85,35 @@ class MultivariateNormal(nn.Module):
         return LowRankMultivariateNormal(
             loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
         ).log_prob(x)
+
+    def log_prob(self, x):
+        return self(x)
+
+
+class MVN(nn.Module):
+    def __init__(self, input_dims):
+        super().__init__()
+
+        self.D = D = input_dims
+        lower_tril_numel = D * (D + 1) // 2 - D
+        self.cov_factor = nn.Parameter(torch.ones(lower_tril_numel), requires_grad=True)
+        self.cov_diag = nn.Parameter(torch.ones(D), requires_grad=True)
+        self.mean = nn.Parameter(torch.zeros(D), requires_grad=True)
+
+        self.tril_idx = torch.tril_indices(D, D, offset=-1).tolist()
+
+    @property
+    def diag(self):
+        return torch.nn.functional.softplus(self.cov_diag + 1e-5).diag()
+
+    @property
+    def scale_tril(self):
+        tril = torch.zeros(self.D, self.D, requires_grad=False)
+        tril[self.tril_idx] = self.cov_factor
+        return self.diag + tril
+
+    def forward(self, x):
+        return MultivariateNormal(loc=self.mean, scale_tril=self.scale_tril).log_prob(x)
 
     def log_prob(self, x):
         return self(x)
@@ -140,7 +170,7 @@ class PatchFlow(torch.nn.Module):
                 channels, trainable=False
             )
         elif dist_name == "multivariate_normal":
-            self.base_distribution = MultivariateNormal(channels)
+            self.base_distribution = MVN(channels)
         else:
             self.base_distribution = StandardDistribution(
                 dist_name, channels, device=self.device
@@ -186,19 +216,32 @@ class PatchFlow(torch.nn.Module):
 
         if self.use_global_context:
             # Pooling for global "low resolution" flow
-            self.norm_pooler = SpatialNorm3D(
-                channels, **self.global_patch_config
-            ).requires_grad_(False)
-            self.conv_pooler = get_conv_layer(
-                3, channels, channels, kernel_size=3, stride=2
+            # self.norm_pooler = SpatialNorm3D(
+            #     channels, **self.global_patch_config
+            # ).requires_grad_(False)
+            # self.conv_pooler = get_conv_layer(
+            #     3, channels, channels, kernel_size=3, stride=2
+            # )
+            # self.global_pooler = nn.Sequential(
+            #     self.norm_pooler,
+            #     self.conv_pooler,
+            # )
+            c = 2
+            self.conv_init = get_conv_layer(
+                3,
+                c,
+                c,
+                kernel_size=self.global_patch_config["kernel_size"],
+                stride=self.global_patch_config["stride"],
             )
+            self.conv_pooler = get_conv_layer(3, c, c, kernel_size=3, stride=2)
             self.global_pooler = nn.Sequential(
-                self.norm_pooler,
+                self.conv_init,
                 self.conv_pooler,
             )
 
             # Spatial resolution of the global context patches
-            _, c, h, w, d = self.global_pooler(torch.empty(1, *input_size)).shape
+            _, _, h, w, d = self.global_pooler(torch.empty(1, c, *input_size[1:])).shape
             logging.info(f"Global Context Shape: {(h, w, d)}")
             self.global_attention = FlowAttentionBlock(
                 input_size=(c, h, w, d),
@@ -264,33 +307,37 @@ class PatchFlow(torch.nn.Module):
         num_res_blocks = 2
         hidden_units = 256
         flows = []
+
+        flows.append(
+            nf.flows.MaskedAffineAutoregressive(
+                input_dim,
+                hidden_features=hidden_units,
+                num_blocks=2,
+                context_features=conditioning_dim,
+            )
+        )
+
         for i in range(num_blocks):
+            flows += [nf.flows.LULinearPermute(input_dim)]
             flows += [
                 nf.flows.CoupledRationalQuadraticSpline(
                     input_dim,
                     num_res_blocks,
                     hidden_units,
                     num_context_channels=conditioning_dim,
+                    num_bins=8
                     # activation=nn.LeakyReLU(0.2),
                 )
             ]
-            flows += [nf.flows.LULinearPermute(input_dim)]
-
-        flows.append(
-            nf.flows.MaskedAffineAutoregressive(
-                input_dim,
-                hidden_features=hidden_units,
-                num_blocks=1,
-                context_features=conditioning_dim,
-            )
-        )
 
         # Construct flow model
+        flows = flows[::-1]  # Normflow expects flows in reverse order
         nfm = nf.ConditionalNormalizingFlow(q0=self.base_distribution, flows=flows)
-
+        # nfm.forward_kld
         return nfm
 
     def forward(self, x, return_attn=False, fast=True):
+        raise NotImplementedError
         B, C = x.shape[0], x.shape[1]
         x_norm = self.local_pooler(x)
         self.position_encoder = self.position_encoder.cpu()
@@ -346,17 +393,17 @@ class PatchFlow(torch.nn.Module):
         patches = patches.chunk(nchunks, dim=0)
         ctx_chunks = local_ctx.chunk(nchunks, dim=0)
         zs, jacs = [], []
+        gc = repeat(global_ctx, "b c -> (n b) c", n=self.patch_batch_size)
 
         for p, ctx in zip(patches, ctx_chunks):
             # Check that patch context is same for all batch elements
             #             assert torch.isclose(c[0, :32], c[B-1, :32]).all()
             #             assert torch.isclose(c[B+1, :32], c[(2*B)-1, :32]).all()
             ctx = ctx.to(self.device)
-            gc = repeat(global_ctx, "b c -> (n b) c", n=ctx.shape[0])
             ctx = rearrange(ctx, "n b c -> (n b) c")
             p = rearrange(p, "n b c -> (n b) c")
 
-            c = torch.cat([ctx, gc], dim=1)
+            c = torch.cat([ctx, gc[: ctx.shape[0]]], dim=1)
             z, ldj = self.flow.inverse_and_log_det(p, context=c)
 
             zs.append(z)
@@ -401,7 +448,7 @@ class PatchFlow(torch.nn.Module):
 
             if flow_model.use_global_context:
                 # Need separate loss for each patch
-                global_pooled_image = flow_model.global_pooler(scores)
+                global_pooled_image = flow_model.global_pooler(x_batch)
                 global_context = flow_model.global_attention(global_pooled_image)
                 # Concatenate global context to local context
                 context_vector = torch.cat([context_vector, global_context], dim=1)
@@ -415,12 +462,16 @@ class PatchFlow(torch.nn.Module):
             local_loss += loss.item()
 
             if train:
-                opt.zero_grad(set_to_none=True)
+                opt.zero_grad()
                 loss.backward()
                 opt.step()
 
-            patch_feature = patch_feature.cpu()
-            context_vector = context_vector.cpu()
+                # Make layers Lipschitz continuous
+                # nf.utils.update_lipschitz(flow_model.flow, 50)
+
+            # patch_feature = patch_feature.cpu()
+            # context_vector = context_vector.cpu()
+            del patch_feature, context_vector
 
         return local_loss / n_patches
 
