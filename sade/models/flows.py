@@ -465,7 +465,7 @@ class PatchFlow(torch.nn.Module):
             loss.backward()
             opt.step()
 
-        return loss.item()
+        return loss.item() / n_patches
 
     @staticmethod
     def get_random_patches(scores, x_batch, flow_model, n_patches):
