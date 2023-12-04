@@ -14,6 +14,7 @@ from torchinfo import summary
 from tqdm import tqdm
 
 from sade.datasets.loaders import get_dataloaders
+from sade.models.distributions import GMM
 from sade.models.ema import ExponentialMovingAverage
 from sade.models.flows import PatchFlow
 from sade.run.utils import (
