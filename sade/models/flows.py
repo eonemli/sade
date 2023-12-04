@@ -434,6 +434,7 @@ class PatchFlow(torch.nn.Module):
     def stochastic_step(scores, x_batch, flow_model, opt=None, train=False, n_patches=1):
         if train:
             flow_model.train()
+            opt.zero_grad(set_to_none=True)
         else:
             flow_model.eval()
 
@@ -441,39 +442,30 @@ class PatchFlow(torch.nn.Module):
             scores, x_batch, flow_model, n_patches
         )
 
-        local_loss = 0.0
-        for patch_feature, context_vector in zip(patches, context):
-            patch_feature = patch_feature.to(flow_model.device)
-            context_vector = context_vector.to(flow_model.device)
+        patch_feature = patches.to(flow_model.device)
+        context_vector = context.to(flow_model.device)
+        patch_feature = rearrange(patch_feature, "n b c -> (n b) c")
+        context_vector = rearrange(context_vector, "n b c -> (n b) c")
 
-            if flow_model.use_global_context:
-                # Need separate loss for each patch
-                global_pooled_image = flow_model.global_pooler(x_batch)
-                global_context = flow_model.global_attention(global_pooled_image)
-                # Concatenate global context to local context
-                context_vector = torch.cat([context_vector, global_context], dim=1)
+        global_pooled_image = flow_model.global_pooler(x_batch)
+        global_context = flow_model.global_attention(global_pooled_image)
+        gctx = repeat(global_context, "b c -> (n b) c", n=n_patches)
 
-            z, ldj = flow_model.flow.inverse_and_log_det(
-                patch_feature,
-                context=context_vector,
-            )
+        # Concatenate global context to local context
+        context_vector = torch.cat([context_vector, gctx], dim=1)
 
-            loss = flow_model.nll(z, ldj)
-            local_loss += loss.item()
+        z, ldj = flow_model.flow.inverse_and_log_det(
+            patch_feature,
+            context=context_vector,
+        )
 
-            if train:
-                opt.zero_grad()
-                loss.backward()
-                opt.step()
+        loss = flow_model.nll(z, ldj) * n_patches
 
-                # Make layers Lipschitz continuous
-                # nf.utils.update_lipschitz(flow_model.flow, 50)
+        if train:
+            loss.backward()
+            opt.step()
 
-            # patch_feature = patch_feature.cpu()
-            # context_vector = context_vector.cpu()
-            del patch_feature, context_vector
-
-        return local_loss / n_patches
+        return loss.item()
 
     @staticmethod
     def get_random_patches(scores, x_batch, flow_model, n_patches):
