@@ -336,15 +336,14 @@ class PatchFlow(torch.nn.Module):
         # nfm.forward_kld
         return nfm
 
-    def forward(self, x, return_attn=False, fast=True):
-        raise NotImplementedError
-        B, C = x.shape[0], x.shape[1]
-        x_norm = self.local_pooler(x)
-        self.position_encoder = self.position_encoder.cpu()
+    def forward(self, x_scores, x_batch, return_attn=False, fast=True):
+        
+        x_norm = self.local_pooler(x_scores)
+        # self.position_encoder = self.position_encoder.cpu()
         context = self.position_encoder(x_norm)
 
         if self.use_global_context:
-            global_pooled_image = self.global_pooler(x)
+            global_pooled_image = self.global_pooler(x_batch)
             # Every patch gets the same global context
             global_context = self.global_attention(global_pooled_image)
 
@@ -399,17 +398,22 @@ class PatchFlow(torch.nn.Module):
             # Check that patch context is same for all batch elements
             #             assert torch.isclose(c[0, :32], c[B-1, :32]).all()
             #             assert torch.isclose(c[B+1, :32], c[(2*B)-1, :32]).all()
-            ctx = ctx.to(self.device)
+            # ctx = ctx.to(self.device)
             ctx = rearrange(ctx, "n b c -> (n b) c")
             p = rearrange(p, "n b c -> (n b) c")
 
-            c = torch.cat([ctx, gc[: ctx.shape[0]]], dim=1)
+            # Only needed for the last chunk
+            if len(gc) != len(ctx):
+                c = torch.cat([ctx, gc[: ctx.shape[0]]], dim=1)
+            else:
+                c = torch.cat([ctx, gc], dim=1)
+            
             z, ldj = self.flow.inverse_and_log_det(p, context=c)
 
             zs.append(z)
             jacs.append(ldj)
 
-            del ctx, gc, p
+            del ctx, p
 
         return zs, jacs
 
@@ -419,13 +423,11 @@ class PatchFlow(torch.nn.Module):
         return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
 
     @torch.no_grad()
-    def log_density(self, x, fast=True):
+    def log_density(self, x_scores, x_batch, fast=True):
         self.eval()
-        b = x.shape[0]
+        b = x_scores.shape[0]
         h, w, d = self.spatial_res
-        zs, jacs = self.forward(x, fast=fast)
-        # pdb.set_trace()
-        # logpx = gaussian_logprob(zs, jacs)
+        zs, jacs = self.forward(x_scores, x_batch, fast=fast)
         logpx = self.base_distribution.log_prob(zs) + jacs
         logpx = rearrange(logpx, "(h w d b) -> b h w d", b=b, h=h, w=w, d=d)
         return logpx
