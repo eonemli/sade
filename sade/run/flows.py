@@ -8,11 +8,11 @@ import sys
 import models.registry as registry
 import numpy as np
 import torch
-import wandb
 from torch.utils import tensorboard
 from torchinfo import summary
 from tqdm import tqdm
 
+import wandb
 from sade.datasets.loaders import get_dataloaders
 from sade.models.distributions import GMM
 from sade.models.ema import ExponentialMovingAverage
@@ -234,6 +234,11 @@ def flow_evaluator(config, workdir):
     logging.info(f"Saving flow evaluation results to {save_dir}")
     experiment = config.eval.experiment
     experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    enhance_lesions = False
+    if "-enhanced" in experiment.ood:
+        enhance_lesions = True
+        experiment.ood = experiment.ood.split("-")[0]
+
     logging.info(f"Running epxperiment {experiment_name}")
 
     # Load datasets
@@ -249,27 +254,30 @@ def flow_evaluator(config, workdir):
     _, inlier_dl, ood_dl = dataloaders
 
     # Get negative log-likelihoods
+    x_ood_nlls = []
+    for x_img_dict in tqdm(ood_dl):
+        x = x_img_dict["image"].to(config.device)
+        
+        if enhance_lesions:
+            labels = x_img_dict["label"].to(config.device)
+            x = x*labels*1.5 + x*(1-labels)
+
+        h = scorer(x)
+        z = -flownet.log_density(h,x, fast=True).cpu()
+        # h = h.to("cpu")
+        del h
+        x_ood_nlls.append(z)
 
     x_inlier_nlls = []
     for x in tqdm(inlier_dl):
         x = x["image"].to(config.device)
         h = scorer(x)
-        x.to("cpu")
-        z = -flownet.log_density(h).cpu()
-        h.to("cpu")
+        z = -flownet.log_density(h,x, fast=True).cpu()
+        # h.to("cpu")
         del h
         x_inlier_nlls.append(z)
         break
 
-    x_ood_nlls = []
-    for x_img_dict in tqdm(ood_dl):
-        x = x_img_dict["image"].to(config.device)
-        h = scorer(x)
-        x = x.to("cpu")
-        z = -flownet.log_density(h).cpu()
-        h = h.to("cpu")
-        del h
-        x_ood_nlls.append(z)
 
     x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
