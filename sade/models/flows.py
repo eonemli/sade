@@ -8,128 +8,10 @@ import normflows as nf
 import torch
 import torch.nn as nn
 from einops import rearrange, repeat
-from torch.distributions import (
-    Cauchy,
-    Independent,
-    LogNormal,
-    LowRankMultivariateNormal,
-    MultivariateNormal,
-    Normal,
-)
 
+from sade.models.distributions import GMM, MVN
 from sade.models.layers import PositionalEncoding3D, SpatialNorm3D
 from sade.models.layerspp import FlowAttentionBlock, get_conv_layer
-
-from . import registry
-
-
-@torch.jit.script
-def gaussian_logprob(z, ldj):
-    _GCONST_ = -0.9189385332046727  # ln(sqrt(2*pi))
-    return _GCONST_ - 0.5 * torch.sum(z**2, dim=-1) + ldj
-
-
-class StandardDistribution(Independent):
-    SUPPORTED_DISTRIBUTIONS = {
-        "cauchy": Cauchy,
-        "normal": Normal,
-        # This will require a speecial trnasform at the end of the flow
-        # An exponential will do
-        # "lognormal": LogNormal
-    }
-
-    def __init__(
-        self,
-        base_distribution_name,
-        *event_shape: int,
-        device=None,
-        dtype=None,
-        validate_args=True,
-    ):
-        assert (
-            base_distribution_name in self.SUPPORTED_DISTRIBUTIONS.keys()
-        ), f"Base distribution {base_distribution_name} not supported.Supported distributions are {self.SUPPORTED_DISTRIBUTIONS.keys()}"
-
-        loc = torch.tensor(0.0, device=device, dtype=dtype).repeat(event_shape)
-        scale = torch.tensor(1.0, device=device, dtype=dtype).repeat(event_shape)
-        self.base = self.SUPPORTED_DISTRIBUTIONS[base_distribution_name]
-
-        super().__init__(
-            self.base(loc, scale, validate_args=validate_args),
-            len(event_shape),
-            validate_args=validate_args,
-        )
-
-
-class LowRankMVN(nn.Module):
-    def __init__(self, input_dims, low_rank_dims=256):
-        super().__init__()
-
-        self.cov_factor = nn.Parameter(
-            torch.randn(input_dims, low_rank_dims), requires_grad=True
-        )
-        self.cov_diag = nn.Parameter(torch.ones(input_dims), requires_grad=True)
-        self.mean = nn.Parameter(torch.zeros(input_dims), requires_grad=False)
-
-    @property
-    def diag(self):
-        return torch.nn.functional.softplus(self.cov_diag) + 1e-5
-
-    @property
-    def covariance_matrix(self):
-        return LowRankMultivariateNormal(
-            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
-        ).covariance_matrix
-
-    def forward(self, x):
-        return LowRankMultivariateNormal(
-            loc=self.mean, cov_factor=self.cov_factor, cov_diag=self.diag
-        ).log_prob(x)
-
-    def log_prob(self, x):
-        return self(x)
-
-
-class MVN(nn.Module):
-    def __init__(self, input_dims):
-        super().__init__()
-
-        self.D = D = input_dims
-        lower_tril_numel = D * (D + 1) // 2 - D
-        self.cov_factor = nn.Parameter(torch.ones(lower_tril_numel), requires_grad=True)
-        self.cov_diag = nn.Parameter(torch.ones(D), requires_grad=True)
-        self.mean = nn.Parameter(torch.zeros(D), requires_grad=True)
-
-        self.tril_idx = torch.tril_indices(D, D, offset=-1).tolist()
-
-    @property
-    def diag(self):
-        return torch.nn.functional.softplus(self.cov_diag + 1e-5).diag()
-
-    @property
-    def scale_tril(self):
-        tril = torch.zeros(self.D, self.D, requires_grad=False)
-        tril[self.tril_idx] = self.cov_factor
-        return self.diag + tril
-
-    def forward(self, x):
-        return MultivariateNormal(loc=self.mean, scale_tril=self.scale_tril).log_prob(x)
-
-    def log_prob(self, x):
-        return self(x)
-
-
-def subnet_fc(c_in, c_out, ndim=256, act=nn.GELU(), input_norm=False):
-    return nn.Sequential(
-        nn.LayerNorm(c_in) if input_norm else nn.Identity(),
-        nn.Linear(c_in, ndim),
-        nn.LayerNorm(ndim),
-        act,
-        nn.Linear(ndim, ndim),
-        nn.LayerNorm(ndim),
-        act,
-        nn.Linear(ndim, c_out),
-    )
 
 
 class PatchFlow(torch.nn.Module):
@@ -165,16 +47,16 @@ class PatchFlow(torch.nn.Module):
             self.base_distribution = nf.distributions.base.GaussianMixture(
                 n_modes=10, dim=channels, trainable=True
             )
-        elif dist_name == "normflow":
+        elif dist_name == "multivariate_gaussian_mixture":
+            self.base_distribution = GMM(n_components=10, num_features=channels)
+        elif dist_name == "multivariate_normal":
+            self.base_distribution = MVN(channels)
+        elif dist_name == "standard":
             self.base_distribution = nf.distributions.base.DiagGaussian(
                 channels, trainable=False
             )
-        elif dist_name == "multivariate_normal":
-            self.base_distribution = MVN(channels)
         else:
-            self.base_distribution = StandardDistribution(
-                dist_name, channels, device=self.device
-            )
+            raise NotImplementedError(f"Distribution {dist_name} is not supported")
 
         # Patch parameters
         self.local_patch_config = config.flow.local_patch_config
@@ -215,17 +97,8 @@ class PatchFlow(torch.nn.Module):
         context_dims = self.context_embedding_size
 
         if self.use_global_context:
-            # Pooling for global "low resolution" flow
-            # self.norm_pooler = SpatialNorm3D(
-            #     channels, **self.global_patch_config
-            # ).requires_grad_(False)
-            # self.conv_pooler = get_conv_layer(
-            #     3, channels, channels, kernel_size=3, stride=2
-            # )
-            # self.global_pooler = nn.Sequential(
-            #     self.norm_pooler,
-            #     self.conv_pooler,
-            # )
+            # Pooling for global context
+
             c = 2
             self.conv_init = get_conv_layer(
                 3,
@@ -287,22 +160,6 @@ class PatchFlow(torch.nn.Module):
                     if m.bias is not None:
                         nn.init.zeros_(m.bias.data)
 
-    def build_cflow_head(self, input_dim, conditioning_dim, input_norm=False, num_blocks=2):
-        coder = Ff.SequenceINN(input_dim)
-        for k in range(num_blocks):
-            # idx = int(k % 2 == 0)
-            coder.append(
-                Fm.AllInOneBlock,
-                cond=0,
-                cond_shape=(conditioning_dim,),
-                subnet_constructor=partial(subnet_fc, input_norm=input_norm, act=nn.GELU()),
-                global_affine_type="SOFTPLUS",
-                permute_soft=True,
-                affine_clamping=1.9,
-            )
-
-        return coder
-
     def build_flow_head(self, input_dim, conditioning_dim, num_blocks=2):
         num_res_blocks = 2
         hidden_units = 256
@@ -333,13 +190,12 @@ class PatchFlow(torch.nn.Module):
         # Construct flow model
         flows = flows[::-1]  # Normflow expects flows in reverse order
         nfm = nf.ConditionalNormalizingFlow(q0=self.base_distribution, flows=flows)
-        # nfm.forward_kld
+
         return nfm
 
-    def forward(self, x_scores, x_batch, return_attn=False, fast=True):
-        
+    def forward(self, x_scores, x_batch, fast=True):
         x_norm = self.local_pooler(x_scores)
-        # self.position_encoder = self.position_encoder.cpu()
+        self.position_encoder = self.position_encoder.cpu()
         context = self.position_encoder(x_norm)
 
         if self.use_global_context:
@@ -398,7 +254,7 @@ class PatchFlow(torch.nn.Module):
             # Check that patch context is same for all batch elements
             #             assert torch.isclose(c[0, :32], c[B-1, :32]).all()
             #             assert torch.isclose(c[B+1, :32], c[(2*B)-1, :32]).all()
-            # ctx = ctx.to(self.device)
+            ctx = ctx.to(self.device)
             ctx = rearrange(ctx, "n b c -> (n b) c")
             p = rearrange(p, "n b c -> (n b) c")
 
@@ -407,7 +263,7 @@ class PatchFlow(torch.nn.Module):
                 c = torch.cat([ctx, gc[: ctx.shape[0]]], dim=1)
             else:
                 c = torch.cat([ctx, gc], dim=1)
-            
+
             z, ldj = self.flow.inverse_and_log_det(p, context=c)
 
             zs.append(z)
@@ -418,8 +274,6 @@ class PatchFlow(torch.nn.Module):
         return zs, jacs
 
     def nll(self, zs, log_jac_dets):
-        # return -torch.mean(gaussian_logprob(zs, log_jac_dets))
-        # pdb.set_trace()
         return -torch.mean(self.base_distribution.log_prob(zs) + log_jac_dets)
 
     @torch.no_grad()

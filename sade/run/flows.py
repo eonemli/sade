@@ -1,6 +1,5 @@
 import copy
 import functools
-import glob
 import logging
 import os
 import sys
@@ -8,20 +7,15 @@ import sys
 import models.registry as registry
 import numpy as np
 import torch
+import wandb
 from torch.utils import tensorboard
 from torchinfo import summary
 from tqdm import tqdm
 
-import wandb
 from sade.datasets.loaders import get_dataloaders
-from sade.models.distributions import GMM
 from sade.models.ema import ExponentialMovingAverage
 from sade.models.flows import PatchFlow
-from sade.run.utils import (
-    get_flow_rundir,
-    restore_checkpoint,
-    restore_pretrained_weights,
-)
+from sade.run.utils import get_flow_rundir, restore_pretrained_weights
 
 
 def flow_trainer(config, workdir):
@@ -257,13 +251,13 @@ def flow_evaluator(config, workdir):
     x_ood_nlls = []
     for x_img_dict in tqdm(ood_dl):
         x = x_img_dict["image"].to(config.device)
-        
+
         if enhance_lesions:
             labels = x_img_dict["label"].to(config.device)
-            x = x*labels*1.5 + x*(1-labels)
+            x = x * labels * 1.5 + x * (1 - labels)
 
         h = scorer(x)
-        z = -flownet.log_density(h,x, fast=True).cpu()
+        z = -flownet.log_density(h, x, fast=True).cpu()
         # h = h.to("cpu")
         del h
         x_ood_nlls.append(z)
@@ -272,12 +266,11 @@ def flow_evaluator(config, workdir):
     for x in tqdm(inlier_dl):
         x = x["image"].to(config.device)
         h = scorer(x)
-        z = -flownet.log_density(h,x, fast=True).cpu()
+        z = -flownet.log_density(h, x, fast=True).cpu()
         # h.to("cpu")
         del h
         x_inlier_nlls.append(z)
         break
-
 
     x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
