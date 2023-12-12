@@ -132,6 +132,16 @@ def evaluator(config, workdir):
 
 def segmentation_evaluator(config, workdir):
     config.device = torch.device("cpu")
+    experiment = config.eval.experiment
+    experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    scores_path = f"{workdir}/{experiment_name}_results.npz"
+    assert os.path.exists(scores_path), f"Scores not found at {scores_path}"
+    data = np.load(scores_path, allow_pickle=True)
+    x_ood_scores = data["ood"]
+
+    if "-enhanced" in experiment.ood:
+        experiment.ood = experiment.ood.split("-")[0]
+
     (_, inlier_ds, ood_ds), _ = get_dataloaders(
         config,
         evaluation=True,
@@ -171,7 +181,7 @@ def segmentation_evaluator(config, workdir):
 
     # Computing Hausdorff distance to determine bets thresholds for segmentation
     best_seg_thresholds, _ = get_best_thresholds(
-        anomaly_scores, true_labels_masked, ood_brain_masks
+        anomaly_scores, true_labels_masked, ood_brain_masks, min_component_size=3
     )
 
     post_proc_preds = []
@@ -184,9 +194,7 @@ def segmentation_evaluator(config, workdir):
         pred_scores = anomaly_scores[sample_idx]
         best_thresh = best_seg_thresholds[sample_idx]
         pred = post_processing(
-            pred_scores > best_thresh,
-            skull_mask,
-            dilate=True,
+            pred_scores > best_thresh, skull_mask, dilate=True, min_component_size=3
         )
         ref_mask = post_processing(
             true_labels[sample_idx], skull_mask, min_component_size=3
