@@ -1,9 +1,5 @@
 import logging
-import pdb
-from functools import partial
 
-import FrEIA.framework as Ff
-import FrEIA.modules as Fm
 import normflows as nf
 import torch
 import torch.nn as nn
@@ -99,7 +95,7 @@ class PatchFlow(torch.nn.Module):
         if self.use_global_context:
             # Pooling for global context
 
-            c = 2
+            c = input_channels = config.data.num_channels
             self.conv_init = get_conv_layer(
                 3,
                 c,
