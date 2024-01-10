@@ -134,7 +134,7 @@ def train(config, workdir, n_components=10, kimg=100, lr=3e-4):
             )
 
     # Recall that Val set does not use augmentations
-    progbar = tqdm(range(100))
+    progbar = tqdm(range(1000))
     for refine_iter in progbar:
         x_batch = next(eval_iter)["image"].to(device)
         scores = scorer(x_batch)
@@ -173,9 +173,10 @@ if __name__ == "__main__":
     workdir = sys.argv[1]
 
     config = biggan_config.get_config()
+    config.data.cache_rate = 1.0
     config.training.use_fp16 = False
     config.training.batch_size = 32
     config.training.log_freq = 2
     config.eval.batch_size = 64
 
-    train(config, workdir)
+    train(config, workdir, kimg=200, lr=1e-3)

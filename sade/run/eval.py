@@ -158,13 +158,6 @@ def segmentation_evaluator(config, workdir):
     x_ood_labels = torch.cat(x_ood_labels)
     ood_brain_masks = (x_ood != -1.0).sum(dim=1).bool()
 
-    experiment = config.eval.experiment
-    experiment_name = f"{experiment.inlier}_{experiment.ood}"
-    scores_path = f"{workdir}/{experiment_name}_results.npz"
-    assert os.path.exists(scores_path), f"Scores not found at {scores_path}"
-    data = np.load(scores_path, allow_pickle=True)
-    x_ood_scores = data["ood"]
-
     ### Run the segmentation evaluation pipeline
 
     # Ensure same spatial size

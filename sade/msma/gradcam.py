@@ -167,7 +167,7 @@ def run(config, workdir):
     x_ood_attrs = torch.stack(x_ood_attrs)
 
     np.savez_compressed(
-        f"{workdir}/msma/{experiment_name}_results.npz",
+        f"{workdir}/msma/gradcam/{experiment_name}_results.npz",
         **{"ood": x_ood_attrs, "inliers": x_inlier_attrs},
     )
 

@@ -19,7 +19,7 @@ def get_config():
 
     # flow-model
     flow = config.flow
-    flow.base_distribution = "multivariate_normal"
+    flow.base_distribution = "gaussian_mixture"
     flow.num_blocks = 20
     flow.context_embedding_size = 128
     flow.use_global_context = True
@@ -27,8 +27,8 @@ def get_config():
     flow.input_norm = False
 
     flow.patch_batch_size = 32
-    flow.patches_per_train_step = 256
-    flow.training_kimg = 50
+    flow.patches_per_train_step = 1024
+    flow.training_kimg = 200
 
     # Config for patch sizes
     flow.local_patch_config = ml_collections.ConfigDict()
