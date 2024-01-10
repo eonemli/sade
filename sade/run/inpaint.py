@@ -131,7 +131,7 @@ def checkerboard_mask(image_size, patch_size, inverted=False):
     return mask
 
 
-def inpainter(config, workdir):
+def inpainter(config, workdir, patch_size=3, num_evals=10):
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
@@ -144,12 +144,16 @@ def inpainter(config, workdir):
     score_model.eval().requires_grad_(False)
 
     # Create save directory
-    save_dir = os.path.join(workdir, "eval", f"inpainting")
+    save_dir = os.path.join(workdir, "eval", "inpainting")
     os.makedirs(save_dir, exist_ok=True)
     logging.info(f"Saving inpainting results to {save_dir}")
     experiment = config.eval.experiment
     experiment_name = f"{experiment.inlier}_{experiment.ood}"
-    logging.info(f"Running epxperiment {experiment_name}")
+    enhance_lesions = False
+    if "-enhanced" in experiment.ood:
+        enhance_lesions = True
+        experiment.ood = experiment.ood.split("-")[0]
+    logging.info(f"Running experiment {experiment_name}")
 
     # Load datasets
     dataloaders, _ = get_dataloaders(
@@ -174,12 +178,8 @@ def inpainter(config, workdir):
     # Number of sampling evaluations to average over
     # Loosely inspired by LMD
     shape = (config.data.num_channels, *config.data.image_size)
-    PATCH_SIZE = 3
-    CHECKERBOARD_MASK = checkerboard_mask(shape, patch_size=PATCH_SIZE)
+    CHECKERBOARD_MASK = checkerboard_mask(shape, patch_size=patch_size)
     CHECKERBOARD_MASK = CHECKERBOARD_MASK.unsqueeze(0).to(config.device)
-
-    NUM_EVALS = 10
-    # aggregate_op = torch.median
 
     x_inlier_results = {}
     x_ood_results = {}
@@ -188,18 +188,23 @@ def inpainter(config, workdir):
         result_dict["errors"] = []
         result_dict["imputed_images"] = []
 
-        for x in tqdm(ds):
-            x = x["image"].to(config.device)
+        for x_img_dict in tqdm(ds):
+            x = x_img_dict["image"].to(config.device)
+
+            if enhance_lesions and "label" in x_img_dict:
+                labels = x_img_dict["label"].to(config.device)
+                x = x * labels * 1.5 + x * (1 - labels)
+
             brain_mask = (x != -1).sum(1, keepdims=True) > 0
             # Produce a 3D mask with checkerboard pattern of a given size
             # m = get_checkerboard_mask(x.shape).to(config.device)
             m = CHECKERBOARD_MASK.repeat(x.shape[0], 1, 1, 1, 1)
             x_inpainted = torch.zeros_like(x)
-            for _ in range(NUM_EVALS):
+            for _ in range(num_evals):
                 x_inpainted += inpainting_fn(score_model, x, brain_mask * m)
                 # Invert each round
                 m = 1 - m
-            x_inpainted /= NUM_EVALS
+            x_inpainted /= num_evals
             x_error = torch.abs(x_inpainted - x).sum(1)
             result_dict["errors"].append(x_error.cpu().numpy())
             result_dict["imputed_images"].append(x_inpainted.cpu().numpy())
@@ -225,14 +230,16 @@ def inpainter(config, workdir):
 if __name__ == "__main__":
     from sade.configs.ve import biggan_config
 
+    logging.basicConfig(level=logging.INFO)
+
     workdir = sys.argv[1]
 
     config = biggan_config.get_config()
     config.training.use_fp16 = True
-    config.eval.batch_size = 96
+    config.eval.batch_size = 1
     experiment = config.eval.experiment
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
-    experiment.ood = "lesion_load_20"
+    experiment.ood = "lesion_load_20-enhanced"
 
     inpainter(config, workdir)
