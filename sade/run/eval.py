@@ -168,11 +168,13 @@ def segmentation_evaluator(config, workdir):
         .squeeze(1)
         .numpy()
     )
+    anomaly_scores = anomaly_scores - anomaly_scores.min(axis=(1, 2, 3), keepdims=True)
     anomaly_scores = anomaly_scores * ood_brain_masks
+
     true_labels = x_ood_labels.sum(1).cpu().numpy() > 0
     true_labels_masked = true_labels * ood_brain_masks
 
-    # Computing Hausdorff distance to determine bets thresholds for segmentation
+    # Computing Hausdorff distance to determine best thresholds for segmentation
     best_seg_thresholds, _ = get_best_thresholds(
         anomaly_scores, true_labels_masked, ood_brain_masks, min_component_size=3
     )
