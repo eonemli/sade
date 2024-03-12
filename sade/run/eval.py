@@ -32,7 +32,6 @@ def evaluator(config, workdir):
 
     # Initialize model.
     score_model = registry.create_model(config, print_summary=True)
-    sde = registry.create_sde(config)
 
     # Load checkpoint
     state = dict(
@@ -62,18 +61,27 @@ def evaluator(config, workdir):
     state = restore_pretrained_weights(checkpoint_path, state, config.device)
     checkpoint_step = state["model_checkpoint_step"]
     score_model.eval().requires_grad_(False)
-    scorer = registry.get_msma_score_fn(config, score_model, return_norm=True)
+    scorer = registry.get_msma_score_fn(
+        config, score_model, return_norm=True, denoise=config.msma.denoise
+    )
     logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
 
     # Create save directory
-    save_dir = os.path.join(workdir, "eval", f"ckpt_{checkpoint_step}")
+    save_dir = os.path.join(
+        workdir,
+        "eval",
+        f"ckpt_{checkpoint_step}",
+        f"smin={config.msma.min_timestep:.2f}_smax={config.msma.max_timestep:.2f}_t={config.msma.n_timesteps}",
+    )
     experiment = config.eval.experiment
     experiment_name = f"{experiment.train}_{experiment.inlier}_{experiment.ood}"
-    # experiment_name += config.eval.experiment.id
+    experiment_name += "-denoise" if config.msma.denoise else ""
     os.makedirs(save_dir, exist_ok=True)
     logging.info(f"Saving evaluation results to {save_dir}")
 
     # Build data iterators
+    if "-enhanced" in experiment.ood:
+        experiment.ood = experiment.ood.split("-")[0]
 
     test_dataloaders, datasets = get_dataloaders(
         config,
