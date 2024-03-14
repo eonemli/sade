@@ -204,9 +204,12 @@ def segmentation_metrics(reference_ccp, segmentation_ccp):
 
 
 def erode_brain_masks(masks, radius=2):
+    if isinstance(masks, torch.Tensor):
+        masks = masks.float().numpy()
+
     eroded_masks = np.zeros_like(masks)
     for i, m in enumerate(masks):
-        m = ants.from_numpy(m.float().numpy())
+        m = ants.from_numpy(m)
         m = ants.morphology(
             m,
             operation="erode",
