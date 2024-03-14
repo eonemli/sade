@@ -204,15 +204,6 @@ def get_score_fn(sde, model, train=False, amp=False):
     return score_fn
 
 
-@torch.inference_mode()
-def denoise_update(x, eps=1e-2):
-    # Reverse diffusion predictor for denoising
-    predictor_obj = ReverseDiffusionPredictor(sde, score_fn, probability_flow=False)
-    vec_eps = torch.ones(x.shape[0], device=x.device) * eps
-    _, x = predictor_obj.update_fn(x, vec_eps)
-    return x
-
-
 def get_msma_sigmas(config):
     """Get sigmas appropriately spaced for msma."""
 
@@ -265,6 +256,17 @@ def get_msma_score_fn(config, score_model, return_norm=True, denoise=False):
     )
 
     timesteps = get_msma_sigmas(config)
+
+    if denoise:
+        rsde = sde.reverse(score_fn, probability_flow=False)
+
+        @torch.inference_mode()
+        def denoise_update(x, eps=1e-2):
+            # Reverse diffusion predictor update for denoising
+            t = torch.ones(x.shape[0], device=x.device) * eps
+            f, _ = rsde.discretize(x, t)
+            x = x - f
+            return x
 
     def scorer(x, timesteps=timesteps) -> torch.Tensor:
         """Compute scores for a batch of samples.

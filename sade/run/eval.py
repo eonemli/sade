@@ -62,7 +62,7 @@ def evaluator(config, workdir):
     checkpoint_step = state["model_checkpoint_step"]
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(
-        config, score_model, return_norm=True, denoise=config.msma.denoise
+        config, score_model, return_norm=config.msma.l2_normed, denoise=config.msma.denoise
     )
     logging.info(f"Evaluating model at checkpoint {checkpoint_step:d}...")
 
@@ -76,8 +76,9 @@ def evaluator(config, workdir):
     experiment = config.eval.experiment
     experiment_name = f"{experiment.train}_{experiment.inlier}_{experiment.ood}"
     experiment_name += "-denoise" if config.msma.denoise else ""
+    experiment_name += "-raw" if not config.msma.l2_normed else ""
     os.makedirs(save_dir, exist_ok=True)
-    logging.info(f"Saving evaluation results to {save_dir}")
+    logging.info(f"Saving experiment {experiment_name} results to {save_dir}")
 
     # Build data iterators
     if "-enhanced" in experiment.ood:
