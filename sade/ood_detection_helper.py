@@ -49,7 +49,6 @@ def auxiliary_model_analysis(
     outliers,
     labels,
     components_range=range(2, 21, 2),
-    flow_epochs=1000,
     verbose=True,
     pca_gmm=False,
     kde=False,
@@ -67,10 +66,10 @@ def auxiliary_model_analysis(
         for name, ood in zip(labels[2:], outliers):
             print("{}: {:.3f}".format(name, np.median(best_gmm_clf.score_samples(ood))))
 
-    gmm_train_score = best_gmm_clf.score_samples(X_train)
-    gmm_test_score = best_gmm_clf.score_samples(X_test)
-    gmm_ood_scores = np.array([best_gmm_clf.score_samples(ood) for ood in outliers])
-    gmm_metrics = get_metrics(-gmm_test_score, -gmm_ood_scores, labels)
+    gmm_train_score = -best_gmm_clf.score_samples(X_train)
+    gmm_test_score = -best_gmm_clf.score_samples(X_test)
+    gmm_ood_scores = [-best_gmm_clf.score_samples(ood) for ood in outliers]
+    gmm_metrics = get_metrics(gmm_test_score, gmm_ood_scores, labels)
     gmm_results = result_dict(gmm_train_score, gmm_test_score, gmm_ood_scores, gmm_metrics)
 
     pca_gmm_results = None
