@@ -1,5 +1,6 @@
 import functools
 import gc
+import pdb
 import sys
 
 import numpy as np
@@ -64,6 +65,7 @@ def run(config, workdir):
     # Initialize main model.
 
     n_timesteps = config.msma.n_timesteps = 10
+    config.model.act = "relu" # This is important for the guided backpropagation to work
     score_model = registry.create_model(config, distributed=False)
     timesteps = registry.get_msma_sigmas(config)
 
@@ -94,7 +96,7 @@ def run(config, workdir):
     layer_gc = LayerGradCam(scoreflow, stop_layer)
 
     # Build data iterator
-    experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    experiment_name = f"{experiment.inlier}_{experiment.ood}-relu"
 
     enhance_lesions = False
     if "-enhanced" in experiment.ood:
@@ -154,6 +156,7 @@ def run(config, workdir):
             x = x.cpu()
             x_backprop = x_backprop.cpu()
             x_grad_cam = x_grad_cam.cpu()
+            # pdb.set_trace()
             x_guided_grad_cam = x_grad_cam * x_backprop
             res_arr.append(x_guided_grad_cam)
             # print("Finished GradCam:", grad_cam_attr.shape)
