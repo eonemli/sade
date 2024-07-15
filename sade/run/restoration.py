@@ -83,7 +83,7 @@ def get_pc_restorer(
     return pc_restorer
 
 
-def restorer(config, workdir):
+def restorer(config, workdir, num_evals=10):
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
     ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
@@ -96,11 +96,15 @@ def restorer(config, workdir):
     score_model.eval().requires_grad_(False)
 
     # Create save directory
-    save_dir = os.path.join(workdir, "eval", f"restoration")
+    save_dir = os.path.join(workdir, "eval", "restoration")
     os.makedirs(save_dir, exist_ok=True)
     logging.info(f"Saving inpainting results to {save_dir}")
     experiment = config.eval.experiment
     experiment_name = f"{experiment.inlier}_{experiment.ood}"
+    enhance_lesions = False
+    if "-enhanced" in experiment.ood:
+        enhance_lesions = True
+        experiment.ood = experiment.ood.split("-")[0]
     logging.info(f"Running epxperiment {experiment_name}")
 
     # Load datasets
@@ -116,19 +120,12 @@ def restorer(config, workdir):
 
     # Initialize sampling routines
     sde = registry.create_sde(config)
-    sampling_shape = (
-        config.eval.sample_size,
-        config.data.num_channels,
-        *config.data.image_size,
-    )
-
     restoration_fn = get_pc_restorer(
         sde,
         predictor=config.sampling.predictor,
         corrector=config.sampling.corrector,
         snr=config.sampling.snr,
     )
-    NUM_EVALS = 10
     num_forward_steps = sde.N // 4  # Following AnoDDPM
 
     x_inlier_results = {}
@@ -138,12 +135,17 @@ def restorer(config, workdir):
         result_dict["imputed_images"] = []
         result_dict["errors"] = []
 
-        for x in tqdm(ds):
-            x = x["image"].to(config.device)
+        for x_img_dict in tqdm(ds):
+            x = x_img_dict["image"].to(config.device)
+
+            if enhance_lesions and "label" in x_img_dict:
+                labels = x_img_dict["label"].to(config.device)
+                x = x * labels * 1.5 + x * (1 - labels)
+
             x_restored = torch.zeros_like(x)
-            for _ in range(NUM_EVALS):
+            for _ in range(num_evals):
                 x_restored += restoration_fn(score_model, x, num_forward_steps)
-            x_restored /= NUM_EVALS
+            x_restored /= num_evals
             x_error = torch.abs(x_restored - x).sum(1)
             result_dict["errors"].append(x_error.cpu().numpy())
             result_dict["imputed_images"].append(x_restored.cpu().numpy())
@@ -172,10 +174,10 @@ if __name__ == "__main__":
 
     config = biggan_config.get_config()
     config.training.use_fp16 = True
-    config.eval.batch_size = 64
+    config.eval.batch_size = 16
     experiment = config.eval.experiment
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
-    experiment.ood = "lesion_load_20"
+    experiment.ood = "lesion_load_20-enhanced"
 
     restorer(config, workdir)
