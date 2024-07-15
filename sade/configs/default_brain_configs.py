@@ -24,7 +24,7 @@ def get_default_configs():
     training.reduce_mean = False
     # Pretrain options
     training.load_pretrain = False
-    training.pretrain_dir = "/path/to/weights/"
+    training.pretrained_checkpoint = "/path/to/weights/"
 
     # sampling
     config.sampling = sampling = ml_collections.ConfigDict()
@@ -43,6 +43,7 @@ def get_default_configs():
     evaluate.enable_loss = False
     evaluate.ood_eval = False
     evaluate.sample_size = 32
+    evaluate.checkpoint_num = -1
 
     experiment = config.eval.experiment = ml_collections.ConfigDict()
     experiment.id = "default"
