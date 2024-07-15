@@ -270,7 +270,6 @@ def flow_evaluator(config, workdir):
         # h.to("cpu")
         del h
         x_inlier_nlls.append(z)
-        break
 
     x_inlier_nlls = torch.cat(x_inlier_nlls).numpy()
     x_ood_nlls = torch.cat(x_ood_nlls).numpy()
