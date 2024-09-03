@@ -3,6 +3,7 @@ import logging
 import numpy as np
 import torch
 import torch.optim as optim
+
 from sade.losses import get_sde_loss_fn
 from sade.models.registry import get_score_fn
 
@@ -160,7 +161,6 @@ def get_step_fn(
                 optimize_fn(
                     model.parameters(),
                     step=state["step"],
-                    amp_scaler=loss_scaler,
                 )
                 state["step"] += 1
                 if not torch.isnan(loss):
