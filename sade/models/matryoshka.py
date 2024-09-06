@@ -1,4 +1,5 @@
 import functools
+import logging
 import os
 
 # The above cannot be `from sade.models` as that does not populate the global _MODELS dict
@@ -13,11 +14,14 @@ from . import ema, layers, layerspp, registry
 default_initializer = layers.default_init
 MultiSequential = layers.MultiSequential
 AttentionBlock = layerspp.ChannelAttentionBlock3d
-get_conv_layer_pp = functools.partial(layerspp.get_conv_layer, spatial_dims=3, init_scale=0.0)
 get_upsample_layer_pp = functools.partial(
     get_upsample_layer, spatial_dims=3, upsample_mode="nontrainable"
 )
-ResBlockpp = functools.partial(layerspp.ResnetBlockBigGANpp, act="memswish")
+get_conv_layer_pp = functools.partial(
+    layerspp.get_conv_layer, spatial_dims=3, init_scale=0.0
+)
+ResBlockpp = functools.partial(layerspp.ResnetBlockBigGANpp, act="memswish", init_scale=0.0)
+
 
 def load_model_from_config(config):
     model_name = config.model.name
@@ -29,26 +33,21 @@ def load_model_from_config(config):
 
 
 def restore_pretrained_weights(ckpt_dir, state, device):
-    assert (
-        state["step"] == 0
-    ), "Can only load pretrained weights when starting a new run"
-    assert os.path.exists(
-        ckpt_dir
-    ), f"Pretrain weights directory {ckpt_dir} does not exist"
-    assert (
-        state["model"].training
-    ), "Model must be in training mode to appropriately load pretrained weights"
+    assert state["step"] == 0, "Can only load pretrained weights when starting a new run"
+    assert os.path.exists(ckpt_dir), f"Pretrain weights directory {ckpt_dir} does not exist"
+    assert state[
+        "model"
+    ].training, "Model must be in training mode to appropriately load pretrained weights"
 
     loaded_state = torch.load(ckpt_dir, map_location=device)
     state["model_checkpoint_step"] = loaded_state["step"]
     dummy_ema = ema.ExponentialMovingAverage(state["model"].parameters(), decay=0.999)
     dummy_ema.load_state_dict(loaded_state["ema"])
     dummy_ema.lazy_copy_to(state["model"].parameters())
-    # logging.info(
-    #     f"Loaded pretrained EMA weights from {ckpt_dir} at {loaded_state['step']}"
-    # )
+    logging.info(f"Loaded pretrained EMA weights from {ckpt_dir} at {loaded_state['step']}")
 
     return state
+
 
 # Magnitude-preserving concatenation (Equation 103) from EDM2 paper.
 def mp_cat(a, b, dim=1, t=0.5):
@@ -78,7 +77,7 @@ class SingleMatryoshka(registry.BaseScoreModel):
         self.pool = torch.nn.AvgPool3d(kernel_size=3, stride=2, padding=1)
         self.pad = functools.partial(torch.nn.functional.pad, pad=(0, 0, 4, 4, 4, 4))
         self.inner_size = self.inner_model_config.data.image_size
-        # self.pool = functools.partial(torch.nn.functional.interpolate, 
+        # self.pool = functools.partial(torch.nn.functional.interpolate,
         #     size=self.inner_model_config.data.image_size
         # )
         self.blocks_down = 1  # config.model.blocks_down[0]
@@ -170,6 +169,9 @@ class SingleMatryoshka(registry.BaseScoreModel):
         x = self.enc["outer_dblock_res-skip"](x, temb)
         res_skips.append(x)
         x = self.enc["outer_dblock_res-down"](x, temb)
+        # x = torch.utils.checkpoint.checkpoint(
+        #     self.enc["outer_dblock_res-down"], *(x, temb), use_reentrant=True
+        #     )
 
         # preparing to ingest input to inner unet
         x = self.channel_squeeze(x)
@@ -179,9 +181,9 @@ class SingleMatryoshka(registry.BaseScoreModel):
         x = F.interpolate(x, size=self.inner_size)
 
         # a full-fledged unet
-        x = self.inner_unet(x, sigma)
+        sigma_rescale_factor = np.sqrt(np.prod(x.shape[2:]) / np.prod(sz))
+        x = self.inner_unet(x, sigma * sigma_rescale_factor)
         x = F.interpolate(x, size=sz)
-
 
         if out is not None:
             out.append((xin_inner, x))
@@ -194,9 +196,9 @@ class SingleMatryoshka(registry.BaseScoreModel):
 
         if out is not None:
             out.append((xin, x))
-        
+
         # scale_by_sigma
         sigma = sigma.reshape((x.shape[0], *([1] * len(x.shape[1:]))))
         x = x / sigma
-        
+
         return x
