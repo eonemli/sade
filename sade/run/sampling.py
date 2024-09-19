@@ -7,6 +7,7 @@ import functools
 import numpy as np
 import torch
 from scipy import integrate
+from tqdm import tqdm
 
 import sade.sde_lib as sde_lib
 from sade.models.registry import get_score_fn
@@ -426,7 +427,7 @@ def get_pc_sampler(
             x = sde.prior_sampling(shape).float().to(device)
             timesteps = torch.linspace(sde.T, eps, sde.N, device=device)
 
-            for i in range(sde.N):
+            for i in tqdm(range(0, sde.N)):
                 t = timesteps[i]
                 vec_t = torch.ones(shape[0], device=t.device) * t
                 # pdb.set_trace()
