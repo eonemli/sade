@@ -10,18 +10,16 @@ def get_config():
     # training
     training = config.training
     training.sde = "vesde"
-    training.continuous = True
-    training.likelihood_weighting = False
     training.reduce_mean = True
-    training.batch_size = 8
+    training.batch_size = 4
+    training.sampling_freq = 10000
     training.n_iters = 1500001
     training.pretrain_dir = (
         "/ASD/ahsan_projects/braintypicality/workdir/cuda_opt/learnable/checkpoints-meta/"
     )
 
     data = config.data
-    # data.image_size = (176, 208, 160)
-    data.image_size = (128, 128, 128)
+    data.image_size = (176, 208, 160)
 
     data.spacing_pix_dim = 1.0
     data.num_channels = 2
@@ -31,15 +29,15 @@ def get_config():
     data.ood_ds = "lesion_load_20"
 
     evaluate = config.eval
-    evaluate.sample_size = 8
-    evaluate.batch_size = 64
+    evaluate.sample_size = 2
+    evaluate.batch_size = 4
 
     # optimization
     optim = config.optim
     optim.weight_decay = 0.0
     optim.optimizer = "Adam"
-    optim.lr = 2e-4
-    optim.warmup = 1000
+    optim.lr = 1e-4
+    optim.warmup = 10_000
     optim.scheduler = "skip"
 
     # sampling
@@ -58,11 +56,11 @@ def get_config():
     model.resblock_type = "biggan"
     model.act = "memswish"
     model.ema_rate = 0.9999
-    model.nf = 24
+    model.nf = 16
     model.time_embedding_sz = 64
     model.num_scales = 2000
     model.embedding_type = "fourier"
-    model.fourier_scale = 8.0
+    model.fourier_scale = 2.0
     model.learnable_embedding = True
 
     model.sigma_max = 1508
