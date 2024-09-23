@@ -2,22 +2,22 @@ import functools
 import logging
 import os
 
+import models.registry as registry
+import numpy as np
 import torch
 import wandb
 from datasets.loaders import get_dataloaders
 from models.ema import ExponentialMovingAverage
-import models.registry as registry
-from optim import get_step_fn, optimization_manager, get_diagnsotic_fn
+from optim import get_diagnsotic_fn, get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
+from .sampling import get_sampling_fn
 from .utils import (
+    plot_slices,
     restore_checkpoint,
     restore_pretrained_weights,
     save_checkpoint,
-    plot_slices,
 )
-from .sampling import get_sampling_fn
-import numpy as np
 
 makedirs = functools.partial(os.makedirs, exist_ok=True)
 
@@ -65,6 +65,9 @@ def trainer(config, workdir):
     # # Resume training when intermediate checkpoints are detected
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state["step"])
+    
+    # Used for accumulating gradients
+    state['train-step'] = 0
 
     if initial_step == 0 and config.training.load_pretrain:
         pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
@@ -94,6 +97,7 @@ def trainer(config, workdir):
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
         use_fp16=config.training.use_fp16,
+        gradient_accumulation_factor=config.training.grad_accum_factor
     )
     eval_step_fn = get_step_fn(
         sde,

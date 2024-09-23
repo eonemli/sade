@@ -71,6 +71,7 @@ def optimization_manager(state_dict, config):
     optimizer = get_optimizer(config, state_dict["model"].parameters())
     scheduler = get_scheduler(config, optimizer)
     grad_scaler = torch.cuda.amp.GradScaler() if config.fp16 else None
+    optimizer.zero_grad()
 
     state_dict["optimizer"] = optimizer
     if scheduler is not None:
@@ -79,7 +80,6 @@ def optimization_manager(state_dict, config):
         state_dict["grad_scaler"] = grad_scaler
 
     def optimize_fn(
-        # optimizer,
         params,
         step,
         lr=config.optim.lr,
@@ -112,6 +112,8 @@ def optimization_manager(state_dict, config):
 
         if step > warmup and scheduler is not None:
             scheduler.step()
+        
+        optimizer.zero_grad()
 
     return optimize_fn
 
@@ -123,6 +125,7 @@ def get_step_fn(
     reduce_mean=False,
     likelihood_weighting=False,
     use_fp16=False,
+    gradient_accumulation_factor=1,
 ):
     """Create a one-step training/evaluation function.
 
@@ -186,17 +189,18 @@ def get_step_fn(
             """
             model = state["model"]
             if train:
-                optimizer = state["optimizer"]
-                optimizer.zero_grad(set_to_none=True)
                 loss = loss_fn(model, batch)
                 loss.backward()
 
-                optimize_fn(
-                    model.parameters(),
-                    step=state["step"],
-                )
-                state["step"] += 1
-                state["ema"].update(model.parameters())
+                if state['train-step'] % gradient_accumulation_factor == 0:
+                    optimize_fn(
+                        model.parameters(),
+                        step=state["step"],
+                    )
+                    state["ema"].update(model.parameters())
+                    state["step"] += 1
+                
+                state['train-step'] += 1
             else:
                 with torch.no_grad():
                     loss = loss_fn(model, batch)

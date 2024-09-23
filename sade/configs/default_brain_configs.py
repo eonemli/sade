@@ -25,6 +25,7 @@ def get_default_configs():
     # Pretrain options
     training.load_pretrain = False
     training.pretrained_checkpoint = "/path/to/weights/"
+    training.grad_accum_factor = 1
 
     # sampling
     config.sampling = sampling = ml_collections.ConfigDict()
