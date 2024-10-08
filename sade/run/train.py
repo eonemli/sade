@@ -2,22 +2,22 @@ import functools
 import logging
 import os
 
+import models.registry as registry
+import numpy as np
 import torch
 import wandb
 from datasets.loaders import get_dataloaders
 from models.ema import ExponentialMovingAverage
-import models.registry as registry
-from optim import get_step_fn, optimization_manager, get_diagnsotic_fn
+from optim import get_diagnsotic_fn, get_step_fn, optimization_manager
 from torch.utils import tensorboard
 
+from .sampling import get_sampling_fn
 from .utils import (
+    plot_slices,
     restore_checkpoint,
     restore_pretrained_weights,
     save_checkpoint,
-    plot_slices,
 )
-from .sampling import get_sampling_fn
-import numpy as np
 
 makedirs = functools.partial(os.makedirs, exist_ok=True)
 
@@ -66,6 +66,9 @@ def trainer(config, workdir):
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
     initial_step = int(state["step"])
 
+    # Used for accumulating gradients
+    state["train-step"] = 0
+
     if initial_step == 0 and config.training.load_pretrain:
         pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
         state = restore_pretrained_weights(pretrain_dir, state, config.device)
@@ -75,7 +78,7 @@ def trainer(config, workdir):
         config,
         evaluation=False,
         ood_eval=False,
-        num_workers=2,
+        num_workers=8,
         infinite_sampler=True,
     )
 
@@ -94,6 +97,7 @@ def trainer(config, workdir):
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
         use_fp16=config.training.use_fp16,
+        gradient_accumulation_factor=config.training.grad_accum_factor,
     )
     eval_step_fn = get_step_fn(
         sde,
@@ -124,12 +128,17 @@ def trainer(config, workdir):
     num_train_steps = config.training.n_iters
     logging.info("Starting training loop at step %d." % (initial_step,))
 
-    for step in range(initial_step, num_train_steps + 1):
+    for training_iter in range(initial_step, num_train_steps + 1):
         batch = next(train_iter)["image"].to(config.device)
 
         # Execute one training step
+        step = state["step"]
         loss = train_step_fn(state, batch)
         loss = loss.item()
+
+        # If still grad accumulating, step will not change
+        if step == state["step"]:
+            continue
 
         if step % config.training.log_freq == 0:
             logging.info("step: %d, training_loss: %.5e" % (step, loss))

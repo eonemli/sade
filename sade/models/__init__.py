@@ -1,2 +1,2 @@
 # Registers model names
-from . import ncsnpp3d
+from . import matryoshka, ncsnpp3d
