@@ -12,6 +12,7 @@ from ml_collections.config_flags import config_flags
 from run.eval import evaluator, segmentation_evaluator
 from run.finetune import finetuner
 from run.flows import flow_evaluator, flow_trainer
+from run.inference import inference
 from run.train import trainer
 
 warnings.filterwarnings("ignore")
@@ -23,7 +24,7 @@ flags.DEFINE_string("workdir", None, "Work directory.")
 flags.DEFINE_enum(
     "mode",
     None,
-    ["train", "finetune", "eval", "seg-eval", "score", "sweep", "flow-train", "flow-eval"],
+    ["train", "finetune", "eval", "seg-eval", "score", "sweep", "flow-train", "flow-eval", "inference"],
     "Running mode: train or eval",
 )
 flags.DEFINE_string("eval_folder", "eval", "The folder name for storing evaluation results")
@@ -124,6 +125,8 @@ def main(argv):
             flow_trainer(config, FLAGS.workdir)
     elif FLAGS.mode == "flow-eval":
         flow_evaluator(FLAGS.config, FLAGS.workdir)
+    elif FLAGS.mode == "inference":
+        inference(FLAGS.config, FLAGS.workdir)
     else:
         raise ValueError(f"Mode {FLAGS.mode} not recognized.")
 

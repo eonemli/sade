@@ -51,6 +51,7 @@ def get_default_configs():
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
     experiment.ood = "tumor"
+    experiment.flow_checkpoint_path = "/path/to/weights/"
 
     # msma
     config.msma = msma = ml_collections.ConfigDict()
@@ -144,9 +145,7 @@ def get_default_configs():
     finoptim.grad_clip = 0
 
     config.seed = 42
-    config.device = (
-        torch.device("cuda:0") if torch.cuda.is_available() else torch.device("cpu")
-    )
+    config.device = "cuda:0" if torch.cuda.is_available() else "cpu"
     config.fp16 = False
 
     # Configuration for Hyperparam sweeps
