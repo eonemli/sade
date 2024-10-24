@@ -64,7 +64,7 @@ def trainer(config, workdir):
 
     # # Resume training when intermediate checkpoints are detected
     state = restore_checkpoint(checkpoint_meta_dir, state, config.device)
-    initial_step = int(state["step"])
+    step = initial_step = int(state["step"])
 
     # Used for accumulating gradients
     state["train-step"] = 0
@@ -128,7 +128,7 @@ def trainer(config, workdir):
     num_train_steps = config.training.n_iters
     logging.info("Starting training loop at step %d." % (initial_step,))
 
-    for training_iter in range(initial_step, num_train_steps + 1):
+    while step < num_train_steps:
         batch = next(train_iter)["image"].to(config.device)
 
         # Execute one training step
