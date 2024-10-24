@@ -110,6 +110,7 @@ def inference(config, workdir):
     )
 
     for name, ds in zip(dsnames, datasets):
+
         os.makedirs(f"{save_dir}/{name}/", exist_ok=True)
 
         for i, xdict in enumerate(tqdm(ds)):
@@ -125,12 +126,17 @@ def inference(config, workdir):
             heatmap = heatmap.squeeze().cpu().numpy()
             scores = scores.squeeze().cpu().numpy()
             score_norms = np.linalg.norm(scores.reshape(scores.shape[0], -1), axis=1)
-
-            np.savez_compressed(
-                f"{save_dir}/{name}/{sampleid}.npz",
+            save_dict = dict(
                 original=x,
                 heatmap=heatmap,
                 scores=scores,
                 score_norms=score_norms,
+            )
+            if "label" in xdict:
+                save_dict["segmentation"] = xdict["label"].cpu().squeeze(0)
+
+            np.savez_compressed(
+                f"{save_dir}/{name}/{sampleid}.npz",
+                **save_dict
             )
             torch.cuda.empty_cache()
