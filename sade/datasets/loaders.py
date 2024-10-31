@@ -132,7 +132,7 @@ def get_dataloaders(
         val_transform = get_val_transform(config)
 
         ood_ds_name = config.eval.experiment.ood.lower()
-        if re.match(r"(lesion)|(brats)", ood_ds_name):
+        if re.match(r"(lesion)|(brats)|(mslub)", ood_ds_name):
             test_transform = get_lesion_transform(config)
         elif re.match(r"tumor", ood_ds_name):
             test_transform = get_tumor_transform(config)
