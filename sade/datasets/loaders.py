@@ -29,7 +29,7 @@ def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
         assert os.path.exists(file_path), f"{file_path} does not exist"
 
         strip = lambda x: x.strip()
-        if re.match(r"(abcd)", dataset_name):
+        if re.match(r"(abcd)|(multisource)", dataset_name):
             strip = lambda x: x.strip().replace("_", "")
 
         with open(file_path) as f:
