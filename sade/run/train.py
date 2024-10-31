@@ -70,8 +70,9 @@ def trainer(config, workdir):
     state["train-step"] = 0
 
     if initial_step == 0 and config.training.load_pretrain:
-        pretrain_dir = os.path.join(config.training.pretrain_dir, "checkpoint.pth")
-        state = restore_pretrained_weights(pretrain_dir, state, config.device)
+        state = restore_pretrained_weights(
+            config.training.pretrained_checkpoint, state, config.device
+        )
 
     # Build data iterators
     dataloaders, datasets = get_dataloaders(
