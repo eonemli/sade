@@ -18,7 +18,7 @@ from sade.datasets.transforms import (
 
 
 def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
-    if re.match(r"(lesion)|(brats)", dataset_name):
+    if re.match(r"(lesion)|(brats)|(mslub)", dataset_name):
         image_files_list = [
             {"image": p, "label": p.replace(".nii.gz", "_label.nii.gz")}
             for p in glob.glob(f"{dataset_dir}/**/*.nii.gz", recursive=True)
@@ -73,7 +73,7 @@ def get_datasets(config, training=False):
         train_file_list = get_image_files_list(train_dataset, dataset_dir, splits_dir)
         val_file_list = get_image_files_list(inlier_dataset, dataset_dir, splits_dir)
 
-        if re.match(r"(lesion)|(brats)", ood_dataset):
+        if re.match(r"(lesion)|(brats)|(mslub)", ood_dataset):
             if "lesion" in ood_dataset:
                 dirname = f"slicer_lesions/{ood_dataset}/{dataset_name.upper()}"
             else:
