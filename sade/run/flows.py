@@ -29,7 +29,9 @@ def flow_trainer(config, workdir):
 
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
-    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
+    ema = ExponentialMovingAverage(
+        score_model.parameters(), decay=config.model.ema_rate
+    )
     state = dict(model=score_model, ema=ema, step=0)
 
     # Get the score model checkpoint from pretrained run
@@ -64,12 +66,18 @@ def flow_trainer(config, workdir):
     flow_checkpoint_path = f"{run_dir}/checkpoint.pth"
     flow_checkpoint_meta_path = f"{run_dir}/checkpoint-meta.pth"
 
+    if os.path.exists(flow_checkpoint_meta_path):
+        state_dict = torch.load(
+            flow_checkpoint_meta_path, map_location=torch.device("cpu")
+        )
+        _ = state_dict["model_state_dict"].pop("position_encoder.cached_penc", None)
+        flownet.load_state_dict(state_dict["model_state_dict"], strict=True)
+        logging.info(f"Resuming checkpoint from {state_dict['kimg']}")
+
     # Set logger so that it outputs to both console and file
     gfile_stream = open(os.path.join(run_dir, "stdout.txt"), "w")
     file_handler = logging.StreamHandler(gfile_stream)
     stdout_handler = logging.StreamHandler(sys.stdout)
-
-    # TODO: RESUME CHECKPPOINT
 
     # Override root handler
     logging.root.handlers = []
@@ -187,7 +195,9 @@ def flow_trainer(config, workdir):
 def flow_evaluator(config, workdir):
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
-    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
+    ema = ExponentialMovingAverage(
+        score_model.parameters(), decay=config.model.ema_rate
+    )
     state = dict(model=score_model, ema=ema, step=0, model_checkpoint_step=0)
 
     # Get the score model checkpoint from pretrained run
