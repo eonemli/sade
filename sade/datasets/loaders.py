@@ -18,7 +18,7 @@ from sade.datasets.transforms import (
 
 
 def get_image_files_list(dataset_name: str, dataset_dir: str, splits_dir: str):
-    if re.match(r"(lesion)|(brats)|(mslub)", dataset_name):
+    if re.match(r"(lesion)|(brats)|(mslub)|(msseg)", dataset_name):
         image_files_list = [
             {"image": p, "label": p.replace(".nii.gz", "_label.nii.gz")}
             for p in glob.glob(f"{dataset_dir}/**/*.nii.gz", recursive=True)
