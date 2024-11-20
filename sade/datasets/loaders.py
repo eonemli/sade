@@ -73,7 +73,7 @@ def get_datasets(config, training=False):
         train_file_list = get_image_files_list(train_dataset, dataset_dir, splits_dir)
         val_file_list = get_image_files_list(inlier_dataset, dataset_dir, splits_dir)
 
-        if re.match(r"(lesion)|(brats)|(mslub)", ood_dataset):
+        if re.match(r"(lesion)|(brats)|(mslub)|(msseg)", ood_dataset):
             if "lesion" in ood_dataset:
                 dirname = f"slicer_lesions/{ood_dataset}/{dataset_name.upper()}"
             else:
@@ -132,7 +132,7 @@ def get_dataloaders(
         val_transform = get_val_transform(config)
 
         ood_ds_name = config.eval.experiment.ood.lower()
-        if re.match(r"(lesion)|(brats)|(mslub)", ood_ds_name):
+        if re.match(r"(lesion)|(brats)|(mslub)|(msseg)", ood_ds_name):
             test_transform = get_lesion_transform(config)
         elif re.match(r"tumor", ood_ds_name):
             test_transform = get_tumor_transform(config)
