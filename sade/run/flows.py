@@ -243,7 +243,7 @@ def flow_evaluator(config, workdir):
         enhance_lesions = True
         experiment.ood = experiment.ood.split("-")[0]
 
-    logging.info(f"Running epxperiment {experiment_name}")
+    logging.info(f"Running experiment {experiment_name}")
 
     # Load datasets
     # Build data iterators

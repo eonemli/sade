@@ -225,14 +225,18 @@ def segmentation_evaluator(config, workdir):
     config.training.batch_size = 1
     config.eval.batch_size = 1
     config.data.cache_rate = 0.0
-    dataset_name = config.eval.experiment.ood
-    expid = config.eval.experiment.id
+    experiment = config.eval.experiment
+    dataset_name = experiment.ood
+    expid = experiment.id
 
     workdir = f"{workdir}/experiments/{expid}"
     assert os.path.exists(
         workdir
     ), f"Could not find experiment directory: {workdir}.\
         Please make sure the heatmaps are pre-computed in experiment directory."
+
+    if "-enhanced" in experiment.ood:
+        experiment.ood = experiment.ood.split("-")[0]
 
     _, datasets = get_dataloaders(
         config, evaluation=True, num_workers=1, infinite_sampler=False

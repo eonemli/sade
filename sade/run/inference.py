@@ -120,7 +120,7 @@ def inference(config, workdir):
 
 
     for name, ds in zip(dsnames, datasets):
-        if "lesion" not in name: continue
+
         if 'lesion' in name and enhance_lesions:
             name += '-enhanced'
 
