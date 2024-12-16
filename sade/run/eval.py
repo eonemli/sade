@@ -11,6 +11,7 @@ from datasets.loaders import get_dataloaders
 from tqdm import tqdm
 
 from sade.metrics import (
+    auto_compute_thresholds,
     compute_segmentation_metrics,
     erode_brain_masks,
     get_best_thresholds,
@@ -249,6 +250,9 @@ def segmentation_evaluator(config, workdir):
     post_proc_labels = []
 
     # Compute segmentation predicitons
+    if not os.path.exists(f"{workdir}/autothresholds.npy"):
+        print("Computing automatic thresholds ...")
+        compute_auto_thresholds(config, workdir)
 
     autothresh = np.load(f"{workdir}/autothresholds.npy", allow_pickle=True).item()
 
@@ -296,7 +300,7 @@ def segmentation_evaluator(config, workdir):
     post_proc_preds_at_fpr10 = np.stack(post_proc_preds_at_fpr10)
     post_proc_labels = np.stack(post_proc_labels)
     np.savez_compressed(
-        f"{workdir}/{dataset_name}_segs_at_fpr10.npz",
+        f"{workdir}/{dataset_name}_segs.npz",
         **{
             "preds_fpr05": post_proc_preds_at_fpr05,
             "preds_fpr10": post_proc_preds_at_fpr10,
@@ -313,3 +317,53 @@ def segmentation_evaluator(config, workdir):
         metrics_df = compute_segmentation_metrics(preds, post_proc_labels)
         metrics_df.to_csv(f"{workdir}/{experiment_name}_seg_eval.csv")
         print(metrics_df.dropna().describe())
+
+
+def compute_auto_thresholds(config, experiment_dir):
+    exp = config.eval.experiment
+    inlier_ds = [exp.train, exp.inlier]
+    savedir = f"{experiment_dir}/inliers-flat-post-proc/"
+    os.makedirs(savedir, exist_ok=True)
+
+    # Compute inlier heatmaps
+    for ds in inlier_ds:
+        dirname = f"{experiment_dir}/{ds}"
+        samples = glob.glob(f"{dirname}/*.npz")
+        for fname in tqdm(samples):
+            with np.load(fname) as data:
+                sid = fname.split("/")[-1].split(".npz")[0]
+                heatmap = data["heatmap"]
+                ximg = ants.from_numpy(data["original"][0] + 1) / 2
+                brain_mask = (ximg > 0).astype("float32")
+                eroded_mask = (
+                    ants.morphology(
+                        brain_mask,
+                        operation="erode",
+                        radius=2,
+                        mtype="binary",
+                        shape="ball",
+                        value=1,
+                        radius_is_parametric=True,
+                    )
+                    .numpy()
+                    .astype(bool)
+                )
+                anomaly_scores = (heatmap - heatmap.min()) * eroded_mask
+                x = anomaly_scores[anomaly_scores.nonzero()]
+                np.savez_compressed(f"{savedir}/{sid}.npz", x)
+
+    # Load inlier samples and compute thresholds
+    samples = glob.glob(f"{savedir}/*")
+    arr = []
+    for fname in tqdm(samples):
+        with np.load(fname) as data:
+            arr.append(data["arr_0"])
+
+    arr = np.concatenate(arr).reshape(-1)
+
+    thresh_fpr10 = auto_compute_thresholds(training_samples=arr, false_positive_rate=0.1)
+    thresh_fpr05 = auto_compute_thresholds(training_samples=arr, false_positive_rate=0.05)
+    np.save(
+        f"{experiment_dir}/autothresholds.npy",
+        {"thresh_fpr05": thresh_fpr05, "thresh_fpr10": thresh_fpr10},
+    )
