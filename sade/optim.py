@@ -45,7 +45,7 @@ def get_scheduler(config, optimizer):
     if config.optim.scheduler == "step":
         scheduler = optim.lr_scheduler.StepLR(
             optimizer,
-            step_size=int(0.3 * config.training.n_iters),
+            step_size=int(0.4 * config.training.n_iters),
             gamma=0.3,
             verbose=False,
         )
@@ -58,7 +58,7 @@ def get_scheduler(config, optimizer):
             eta_min=1e-6,
         )
 
-    logging.info("Using scheduler:", scheduler)
+    logging.info(f"Using scheduler: {scheduler.__class__}")
     return scheduler
 
 
