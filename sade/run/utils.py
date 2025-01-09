@@ -75,7 +75,7 @@ def save_checkpoint(ckpt_dir, state):
     if state.get("scheduler") is not None:
         saved_state["scheduler"] = state["scheduler"].state_dict()
 
-    if state.get("scheduler") is not None:
+    if state.get("grad_scaler") is not None:
         saved_state["grad_scaler"] = state["grad_scaler"].state_dict()
 
     torch.save(saved_state, ckpt_dir)
