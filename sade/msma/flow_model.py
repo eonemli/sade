@@ -287,7 +287,7 @@ if __name__ == "__main__":
     workdir = sys.argv[1]
 
     config = biggan_config.get_config()
-    config.training.use_fp16 = True
+    config.fp16 = True
     config.training.batch_size = 32
     config.eval.batch_size = 32
     config.flow.training_kimg = 50

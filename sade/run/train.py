@@ -79,7 +79,7 @@ def trainer(config, workdir):
         config,
         evaluation=False,
         ood_eval=False,
-        num_workers=8,
+        num_workers=4,
         infinite_sampler=True,
     )
 
@@ -97,7 +97,7 @@ def trainer(config, workdir):
         optimize_fn=optimize_fn,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
         gradient_accumulation_factor=config.training.grad_accum_factor,
     )
     eval_step_fn = get_step_fn(
@@ -106,14 +106,14 @@ def trainer(config, workdir):
         optimize_fn=optimize_fn,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
     )
 
     diagnsotic_step_fn = get_diagnsotic_fn(
         sde,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
     )
 
     # Building sampling functions

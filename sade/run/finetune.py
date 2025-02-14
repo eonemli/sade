@@ -81,7 +81,7 @@ def finetuner(config, workdir):
         optimize_fn=optimize_fn,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
     )
 
     eval_step_fn = get_step_fn(
@@ -90,14 +90,14 @@ def finetuner(config, workdir):
         optimize_fn=optimize_fn,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
     )
 
     diagnsotic_step_fn = get_diagnsotic_fn(
         sde,
         reduce_mean=reduce_mean,
         likelihood_weighting=likelihood_weighting,
-        use_fp16=config.training.use_fp16,
+        use_fp16=config.fp16,
     )
 
     sampling_shape = (

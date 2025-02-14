@@ -184,7 +184,7 @@ if __name__ == "__main__":
     workdir = sys.argv[1]
 
     config = biggan_config.get_config()
-    config.training.use_fp16 = False
+    config.fp16 = False
     experiment = config.eval.experiment
     experiment.train = "abcd-val"  # The dataset used for training MSMA
     experiment.inlier = "abcd-test"
