@@ -18,6 +18,29 @@ from sade.models.flows import PatchFlow
 from sade.run.utils import get_flow_rundir, restore_pretrained_weights
 
 
+def build_score_getter(dataset_or_loader, scorer, cache_size=-1, device="cuda"):
+
+    if cache_size > -1:
+        cache = {}
+        def get_next_score_tensor(index):
+            if index not in cache:
+                x = dataset_or_loader[index]['image']
+                x = torch.tensor(x).unsqueeze(0).to(device)
+                scores = scorer(x).cpu()
+                x = x.cpu()
+                cache[index] = (x, scores)
+
+            return cache[index]
+    else:
+        def get_next_score_tensor():
+            x = next(dataset_or_loader)['image']
+            x = torch.tensor(x).to(device)
+            scores = scorer(x)
+            return x, scores
+    
+    return get_next_score_tensor
+
+
 def flow_trainer(config, workdir):
     kimg = config.flow.training_kimg
     log_tensorboard = config.flow.log_tensorboard
@@ -26,12 +49,13 @@ def flow_trainer(config, workdir):
     device = config.device
     ema_halflife_kimg = config.flow.ema_halflife_kimg
     ema_rampup_ratio = config.flow.ema_rampup_ratio
+    fast_training_mode = config.flow.training_fast_mode
 
     # Initialize score model
+    fp16_flag = config.fp16
+    config.fp16 = True
     score_model = registry.create_model(config, log_grads=False)
-    ema = ExponentialMovingAverage(
-        score_model.parameters(), decay=config.model.ema_rate
-    )
+    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
     state = dict(model=score_model, ema=ema, step=0)
 
     # Get the score model checkpoint from pretrained run
@@ -40,6 +64,7 @@ def flow_trainer(config, workdir):
     )
     score_model.eval().requires_grad_(False)
     scorer = registry.get_msma_score_fn(config, score_model, return_norm=False)
+    config.fp16 = fp16_flag
 
     # Initialize flow model
     flownet = registry.create_flow(config)
@@ -47,16 +72,30 @@ def flow_trainer(config, workdir):
     summary(flownet, depth=0, verbose=2)
 
     # Build data iterators
-    dataloaders, _ = get_dataloaders(
+    dataloaders, datasets = get_dataloaders(
         config,
         evaluation=False,
         num_workers=4,
         infinite_sampler=True,
     )
 
-    train_dl, eval_dl, _ = dataloaders
-    train_iter = iter(train_dl)
-    eval_iter = iter(eval_dl)
+    train_ds, eval_ds, _ = datasets
+
+    if fast_training_mode:
+        # In this mode, we only compute the scores once for each image
+        # We also cache the scores for the entire dataset
+        # Note that this mode skips data augmentations and thus the model may overfit
+        train_score_getter = build_score_getter(
+            train_ds, scorer, cache_size=int(0.8 * len(train_ds))
+        )
+        eval_score_getter = build_score_getter(eval_ds, scorer, cache_size=len(eval_ds))
+    else:
+        train_dl, eval_dl, _ = dataloaders
+        train_iter = iter(train_dl)
+        eval_iter = iter(eval_dl)
+        
+        train_score_getter = build_score_getter(train_iter, scorer)
+        eval_score_getter = build_score_getter(eval_iter, scorer)
 
     run_dir = get_flow_rundir(config, workdir)
     run_dir = run_dir + "_" + wandb.run.id
@@ -67,9 +106,7 @@ def flow_trainer(config, workdir):
     flow_checkpoint_meta_path = f"{run_dir}/checkpoint-meta.pth"
 
     if os.path.exists(flow_checkpoint_meta_path):
-        state_dict = torch.load(
-            flow_checkpoint_meta_path, map_location=torch.device("cpu")
-        )
+        state_dict = torch.load(flow_checkpoint_meta_path, map_location=torch.device("cpu"))
         _ = state_dict["model_state_dict"].pop("position_encoder.cached_penc", None)
         flownet.load_state_dict(state_dict["model_state_dict"], strict=True)
         logging.info(f"Resuming checkpoint from {state_dict['kimg']}")
@@ -113,7 +150,7 @@ def flow_trainer(config, workdir):
     )
 
     losses = []
-    batch_sz = config.training.batch_size
+    batch_sz = 1  if fast_training_mode else config.training.batch_size
     total_iters = kimg * 1000 // batch_sz + 1
     progbar = tqdm(range(total_iters))
     niter = 0
@@ -121,11 +158,16 @@ def flow_trainer(config, workdir):
     best_val_loss = np.inf
     checkpoint_interval = 10
     loss_dict = {}
+    randint_generator = torch.Generator()
 
     for niter in progbar:
-        x_batch = next(train_iter)["image"]
-        x_batch = torch.tensor(x_batch).to(device)
-        scores = scorer(x_batch)
+        if fast_training_mode:
+            randidx = torch.randint(high=len(train_ds), size=(1,), generator=randint_generator)
+            x_batch, scores = train_score_getter(randidx.item())
+        else:
+            x_batch, scores = train_score_getter()
+        x_batch = x_batch.to(device)
+        scores = scores.to(device)
 
         loss_dict["train_loss"] = flow_train_step(scores, x_batch)
         imgcount += x_batch.shape[0]
@@ -145,8 +187,16 @@ def flow_trainer(config, workdir):
             flownet.eval()
 
             with torch.no_grad():
-                x_batch = next(eval_iter)["image"].to(device)
-                scores = scorer(x_batch)
+                if fast_training_mode:
+                    randidx = torch.randint(
+                        high=len(eval_ds), size=(1,), generator=randint_generator
+                    )
+                    x_batch, scores = eval_score_getter(randidx.item())
+                else:
+                    x_batch, scores = eval_score_getter()
+                x_batch = x_batch.to(device)
+                scores = scores.to(device)
+
                 val_loss = flow_eval_step(scores, x_batch)
                 loss_dict["val_loss"] = val_loss
 
@@ -155,7 +205,8 @@ def flow_trainer(config, workdir):
 
         if log_tensorboard:
             for loss_type in loss_dict:
-                writer.add_scalar(f"loss/{loss_type}", loss_dict[loss_type], niter)
+                loss_name = f"{'fast-' if fast_training_mode else ''}loss/{loss_type}"
+                writer.add_scalar(loss_name, loss_dict[loss_type], niter)
 
         progbar.set_postfix(batch=f"{imgcount}/{kimg}K")
 
@@ -195,9 +246,7 @@ def flow_trainer(config, workdir):
 def flow_evaluator(config, workdir):
     # Initialize score model
     score_model = registry.create_model(config, log_grads=False)
-    ema = ExponentialMovingAverage(
-        score_model.parameters(), decay=config.model.ema_rate
-    )
+    ema = ExponentialMovingAverage(score_model.parameters(), decay=config.model.ema_rate)
     state = dict(model=score_model, ema=ema, step=0, model_checkpoint_step=0)
 
     # Get the score model checkpoint from pretrained run
