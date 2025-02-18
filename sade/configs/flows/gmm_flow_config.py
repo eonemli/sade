@@ -17,6 +17,10 @@ def get_config():
     experiment.inlier = "abcd-test"
     experiment.ood = "lesion_load_20-enhanced"
 
+    msma = config.msma
+    msma.min_timestep = 0.01
+    msma.max_timestep = 0.8
+
     # flow-model
     flow = config.flow
     flow.base_distribution = "gaussian_mixture"

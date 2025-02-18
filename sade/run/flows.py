@@ -86,7 +86,7 @@ def flow_trainer(config, workdir):
         # We also cache the scores for the entire dataset
         # Note that this mode skips data augmentations and thus the model may overfit
         train_score_getter = build_score_getter(
-            train_ds, scorer, cache_size=int(0.8 * len(train_ds))
+            train_ds, scorer, cache_size=len(train_ds)
         )
         eval_score_getter = build_score_getter(eval_ds, scorer, cache_size=len(eval_ds))
     else:
@@ -166,6 +166,7 @@ def flow_trainer(config, workdir):
             x_batch, scores = train_score_getter(randidx.item())
         else:
             x_batch, scores = train_score_getter()
+        
         x_batch = x_batch.to(device)
         scores = scores.to(device)
 
