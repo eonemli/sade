@@ -2,8 +2,8 @@
 
 NAME="sade"
 PORT=9990
-CODESPACE=/GROND_STOR/amahmood/workspace/
-#CODESPACE=/ASD/ahsan_projects/test/
+# This is the directory where `sade` is cloned
+CODESPACE=/ASD/ahsan_projects/Developer/
 
 docker stop $NAME-docker || true # Exits gracefully if container doesnt exist
 
@@ -18,6 +18,7 @@ docker run \
 	--mount type=bind,src=/ASD/ahsan_projects/braintypicality/workdir/,target=/workdir/ \
 	--mount type=bind,src="/BEE/Connectome/ABCD/",target=/DATA \
 	--mount type=bind,src="/ASD/",target=/ASD \
+	--mount type=bind,src="/ASD2/",target=/ASD2 \
 	--mount type=bind,src="/UTexas",target=/UTexas \
 	--mount type=bind,src=$CODESPACE,target=/codespace \
 	-p $PORT:8888 \
