@@ -96,6 +96,7 @@ def get_default_configs():
     flow.context_embedding_size = 128
     flow.use_global_context = True
     flow.global_embedding_size = 512
+    flow.training_fast_mode = False
 
     # Config for patch sizes
     flow.local_patch_config = ml_collections.ConfigDict()
